@@ -41,13 +41,18 @@ export default class PreloaderScene extends Phaser.Scene {
         // 加载哪吒角色图片
         this.load.image('player', 'src/assets/nezha.png');
         
+        // 加载混天绫攻击图片
+        this.load.image('huntianling', 'src/assets/huntianling.png');
+
+        this.load.image("xiaolongren", 'src/assets/xiaolongren.png')
+        
         // --- 动态生成纹理 ---
         // 敌人 (红色方块)
         this.make.graphics({ fillStyle: { color: 0xff0000 } })
             .fillRect(0, 0, 16, 16)
             .generateTexture('enemy', 16, 16);
             
-        // 子弹 (黄色小方块)
+        // 子弹 (黄色小方块) - 保留作为备用
         this.make.graphics({ fillStyle: { color: 0xffff00 } })
             .fillRect(0, 0, 8, 8)
             .generateTexture('bullet', 8, 8);

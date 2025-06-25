@@ -103,9 +103,18 @@ export default class GameScene extends Phaser.Scene {
 
         // 5. 子弹组
         this.bullets = this.physics.add.group({
-            defaultKey: 'bullet',
+            defaultKey: 'huntianling', // 使用混天绫图片替代原来的bullet
             maxSize: 100 // 增加子弹池大小支持多重射击
         });
+        
+        // 调试：输出huntianling纹理尺寸信息
+        const huntianlingTexture = this.textures.get('huntianling');
+        if (huntianlingTexture) {
+            const huntianlingWidth = huntianlingTexture.source[0].width;
+            const huntianlingHeight = huntianlingTexture.source[0].height;
+            console.log(`混天绫纹理尺寸: ${huntianlingWidth}x${huntianlingHeight}px`);
+        }
+        
         this.physics.add.collider(this.bullets, this.wallLayer, (bullet) => bullet.destroy());
         this.physics.add.overlap(this.bullets, this.enemies, this.handleBulletEnemyCollision, null, this);
 
@@ -474,10 +483,23 @@ export default class GameScene extends Phaser.Scene {
             const spawnPosition = this.findValidSpawnPosition();
             
             if (spawnPosition) {
-                const enemy = this.enemies.create(spawnPosition.x, spawnPosition.y, 'enemy');
-                // 设置敌人的碰撞体 - 确保body和精灵对齐
-                enemy.body.setSize(16, 16);
-                enemy.body.setOffset(0, 0); // 确保body和精灵对齐
+                const enemy = this.enemies.create(spawnPosition.x, spawnPosition.y, 'xiaolongren');
+                
+                // 设置小龙人的缩放和碰撞体，参考玩家设置
+                // 假设小龙人图片尺寸和玩家类似，如果实际尺寸不同请调整scale值
+                const enemyScale = 0.035; // 相比玩家稍小一点
+                enemy.setScale(enemyScale);
+                
+                // 设置碰撞体，参考玩家的设置方式
+                const targetEnemyBodySize = 28; // 敌人碰撞体稍小于玩家
+                const enemyBodySize = targetEnemyBodySize / enemyScale;
+                enemy.body.setSize(enemyBodySize, enemyBodySize);
+                
+                // 设置偏移量使其在纹理中居中，假设图片尺寸为1024x1024
+                const enemyTextureSize = 1024; // 如果xiaolongren图片尺寸不同，请调整此值
+                const enemyOffset = (enemyTextureSize - enemyBodySize) / 2;
+                enemy.body.setOffset(enemyOffset, enemyOffset);
+                
                 enemy.setCollideWorldBounds(false);
                 
                 // 使用body中心坐标计算距离
@@ -666,10 +688,20 @@ export default class GameScene extends Phaser.Scene {
             if (room) {
                 const enemyX = Phaser.Math.Between(room.x + 16, room.right - 16);
                 const enemyY = Phaser.Math.Between(room.y + 16, room.bottom - 16);
-                const enemy = this.enemies.create(enemyX, enemyY, 'enemy');
-                // 设置敌人的碰撞体 - 确保body和精灵对齐
-                enemy.body.setSize(16, 16);
-                enemy.body.setOffset(0, 0); // 确保body和精灵对齐
+                const enemy = this.enemies.create(enemyX, enemyY, 'xiaolongren');
+                
+                // 设置小龙人的缩放和碰撞体，与主要生成方法保持一致
+                const enemyScale = 0.035;
+                enemy.setScale(enemyScale);
+                
+                const targetEnemyBodySize = 28;
+                const enemyBodySize = targetEnemyBodySize / enemyScale;
+                enemy.body.setSize(enemyBodySize, enemyBodySize);
+                
+                const enemyTextureSize = 1024;
+                const enemyOffset = (enemyTextureSize - enemyBodySize) / 2;
+                enemy.body.setOffset(enemyOffset, enemyOffset);
+                
                 enemy.setCollideWorldBounds(false);
                 console.log(`备用方法：敌人生成在位置: (${enemyX}, ${enemyY})`);
             }
@@ -679,10 +711,20 @@ export default class GameScene extends Phaser.Scene {
             if (room) {
                 const enemyX = Phaser.Math.Between(room.x + 16, room.right - 16);
                 const enemyY = Phaser.Math.Between(room.y + 16, room.bottom - 16);
-                const enemy = this.enemies.create(enemyX, enemyY, 'enemy');
-                // 设置敌人的碰撞体 - 确保body和精灵对齐
-                enemy.body.setSize(16, 16);
-                enemy.body.setOffset(0, 0); // 确保body和精灵对齐
+                const enemy = this.enemies.create(enemyX, enemyY, 'xiaolongren');
+                
+                // 设置小龙人的缩放和碰撞体，与主要生成方法保持一致
+                const enemyScale = 0.035;
+                enemy.setScale(enemyScale);
+                
+                const targetEnemyBodySize = 28;
+                const enemyBodySize = targetEnemyBodySize / enemyScale;
+                enemy.body.setSize(enemyBodySize, enemyBodySize);
+                
+                const enemyTextureSize = 1024;
+                const enemyOffset = (enemyTextureSize - enemyBodySize) / 2;
+                enemy.body.setOffset(enemyOffset, enemyOffset);
+                
                 enemy.setCollideWorldBounds(false);
                 console.log(`备用方法：敌人生成在房间 ${roomIndex}，位置: (${enemyX}, ${enemyY})`);
             }
@@ -784,6 +826,11 @@ export default class GameScene extends Phaser.Scene {
                 bullet.setActive(true);
                 bullet.setVisible(true);
                 
+                // 设置混天绫的缩放 - 根据实际尺寸1536x1024px调整
+                // 缩放到约24px长度作为子弹（相对于1536px的长边）
+                const bulletScale = 24 / 1536; // ≈ 0.0156
+                bullet.setScale(bulletScale);
+                
                 // 如果有多发子弹，添加轻微的角度偏移以避免重叠
                 let bulletAngle = angle;
                 if (count > 1) {
@@ -792,8 +839,22 @@ export default class GameScene extends Phaser.Scene {
                     bulletAngle += offset;
                 }
                 
+                // 设置子弹旋转方向，使其指向飞行方向
+                bullet.setRotation(bulletAngle);
+                
                 this.physics.velocityFromRotation(bulletAngle, this.bulletSpeed, bullet.body.velocity);
-                bullet.body.setSize(8, 8);
+                
+                // 设置碰撞体 - 根据实际纹理尺寸1536x1024px调整
+                const targetBulletBodySize = 20; // 子弹碰撞体大小（像素）
+                const bulletBodySize = targetBulletBodySize / bulletScale;
+                bullet.body.setSize(bulletBodySize, bulletBodySize);
+                
+                // 设置碰撞体偏移，使其居中（基于1536x1024的实际尺寸）
+                const huntianlingWidth = 1536;
+                const huntianlingHeight = 1024;
+                const bulletOffsetX = (huntianlingWidth - bulletBodySize) / 2;
+                const bulletOffsetY = (huntianlingHeight - bulletBodySize) / 2;
+                bullet.body.setOffset(bulletOffsetX, bulletOffsetY);
             }
         }
     }
