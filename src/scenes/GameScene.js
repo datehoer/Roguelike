@@ -42,6 +42,8 @@ export default class GameScene extends Phaser.Scene {
         this.lastEnemyCheck = 0;
         this.enemyCheckInterval = 5000; // 每5秒检查一次敌人数量
         this.lastDifficultyLevel = 0; // 记录上次的难度等级
+        // 新增：调试模式开关
+        this.debugEnabled = false;
     }
 
     create() {
@@ -69,7 +71,23 @@ export default class GameScene extends Phaser.Scene {
         const playerStart = Phaser.Geom.Rectangle.GetCenter(this.rooms[0]);
         this.player = this.physics.add.sprite(playerStart.x, playerStart.y, 'player');
         this.player.setCollideWorldBounds(false); // 我们用墙来限制
-        this.player.body.setSize(16, 16);
+        
+        // 设置哪吒角色的缩放和碰撞体
+        // 原图尺寸: 1024x1024px，缩放到约40px高度
+        const scale = 0.039;
+        this.player.setScale(scale); // 1024 * 0.039 ≈ 40px
+        
+        // **修正碰撞体设置**
+        // body的尺寸和偏移是相对于未缩放的纹理(1024x1024)设置的。
+        // 为了得到一个在屏幕上看起来是32x32的碰撞体，我们需要将期望尺寸除以缩放比例。
+        const targetBodySize = 32;
+        const bodySize = targetBodySize / scale;
+        this.player.body.setSize(bodySize, bodySize);
+
+        // 同样，偏移量也需要计算，使其在纹理中居中。
+        const textureSize = 1024; // 原始纹理尺寸
+        const offset = (textureSize - bodySize) / 2;
+        this.player.body.setOffset(offset, offset); // Y方向可以微调以匹配视觉效果
 
         // 3. 敌人创建 - 修改为动态生成
         this.enemies = this.physics.add.group();
@@ -107,6 +125,23 @@ export default class GameScene extends Phaser.Scene {
         // 8. 初始化UI事件
         this.events.emit('updateHP', this.playerHp, this.maxPlayerHp);
         this.events.emit('updateScore', this.score);
+
+        // 切换物理世界调试绘制
+        if (this.debugEnabled) {
+            this.physics.world.drawDebug = true;
+            // 若未创建 debugGraphic，则创建
+            if (!this.physics.world.debugGraphic) {
+                this.physics.world.createDebugGraphic();
+            }
+            if (this.physics.world.debugGraphic) {
+                this.physics.world.debugGraphic.setVisible(true);
+            }
+        } else {
+            this.physics.world.drawDebug = false;
+            if (this.physics.world.debugGraphic) {
+                this.physics.world.debugGraphic.setVisible(false);
+            }
+        }
     }
 
     update() {
@@ -127,6 +162,12 @@ export default class GameScene extends Phaser.Scene {
 
             // 检查升级触发
             this.checkUpgradeAvailable();
+            
+            // 实时位置输出 - 每500ms输出一次
+            if (this.debugEnabled && (!this.lastPositionLog || currentTime - this.lastPositionLog > 500)) {
+                this.logPositionInfo();
+                this.lastPositionLog = currentTime;
+            }
         }
     }
 
@@ -434,15 +475,22 @@ export default class GameScene extends Phaser.Scene {
             
             if (spawnPosition) {
                 const enemy = this.enemies.create(spawnPosition.x, spawnPosition.y, 'enemy');
+                // 设置敌人的碰撞体 - 确保body和精灵对齐
                 enemy.body.setSize(16, 16);
+                enemy.body.setOffset(0, 0); // 确保body和精灵对齐
                 enemy.setCollideWorldBounds(false);
                 
+                // 使用body中心坐标计算距离
+                const playerCenterX = this.player.body.x + this.player.body.width / 2;
+                const playerCenterY = this.player.body.y + this.player.body.height / 2;
+                const enemyCenterX = enemy.body.x + enemy.body.width / 2;
+                const enemyCenterY = enemy.body.y + enemy.body.height / 2;
                 const distanceToPlayer = Phaser.Math.Distance.Between(
-                    this.player.x, this.player.y, 
-                    spawnPosition.x, spawnPosition.y
+                    playerCenterX, playerCenterY, 
+                    enemyCenterX, enemyCenterY
                 );
                 
-                console.log(`敌人生成在位置: (${spawnPosition.x}, ${spawnPosition.y})，距离玩家: ${Math.round(distanceToPlayer)}像素`);
+                console.log(`敌人生成在位置: (${spawnPosition.x}, ${spawnPosition.y})，Body中心距离玩家: ${Math.round(distanceToPlayer)}像素`);
             } else {
                 console.log('无法找到有效的生成位置，使用备用方法');
                 this.fallbackSpawnEnemy();
@@ -452,14 +500,15 @@ export default class GameScene extends Phaser.Scene {
 
     // 寻找玩家附近的有效生成位置
     findValidSpawnPosition() {
-        const playerX = this.player.x;
-        const playerY = this.player.y;
+        // 使用玩家body中心坐标作为参考点
+        const playerCenterX = this.player.body.x + this.player.body.width / 2;
+        const playerCenterY = this.player.body.y + this.player.body.height / 2;
         
         // 自适应调整生成距离
         this.adjustSpawnDistances();
         
         // 优先尝试在玩家移动方向前方生成
-        const spawnPosition = this.trySpawnInMovementDirection(playerX, playerY);
+        const spawnPosition = this.trySpawnInMovementDirection(playerCenterX, playerCenterY);
         if (spawnPosition) {
             return spawnPosition;
         }
@@ -472,8 +521,8 @@ export default class GameScene extends Phaser.Scene {
                 this.adaptiveSpawnDistance.max
             );
             
-            const spawnX = playerX + Math.cos(angle) * distance;
-            const spawnY = playerY + Math.sin(angle) * distance;
+            const spawnX = playerCenterX + Math.cos(angle) * distance;
+            const spawnY = playerCenterY + Math.sin(angle) * distance;
             
             if (this.isValidSpawnPosition(spawnX, spawnY)) {
                 return { x: spawnX, y: spawnY };
@@ -485,10 +534,16 @@ export default class GameScene extends Phaser.Scene {
 
     // 自适应调整生成距离
     adjustSpawnDistances() {
-        // 计算玩家周围敌人密度
+        // 使用body中心坐标计算玩家周围敌人密度
+        const playerCenterX = this.player.body.x + this.player.body.width / 2;
+        const playerCenterY = this.player.body.y + this.player.body.height / 2;
+        
         const nearbyEnemies = this.enemies.getChildren().filter(enemy => {
+            const enemyCenterX = enemy.body.x + enemy.body.width / 2;
+            const enemyCenterY = enemy.body.y + enemy.body.height / 2;
             const distance = Phaser.Math.Distance.Between(
-                this.player.x, this.player.y, enemy.x, enemy.y
+                playerCenterX, playerCenterY, 
+                enemyCenterX, enemyCenterY
             );
             return distance <= 400;
         });
@@ -517,10 +572,12 @@ export default class GameScene extends Phaser.Scene {
     }
 
     // 尝试在玩家移动方向前方生成敌人
-    trySpawnInMovementDirection(playerX, playerY) {
-        // 计算玩家移动方向
-        const playerMovementX = playerX - this.lastPlayerPosition.x;
-        const playerMovementY = playerY - this.lastPlayerPosition.y;
+    trySpawnInMovementDirection(playerCenterX, playerCenterY) {
+        // 计算玩家移动方向 - 使用body中心位置
+        const lastPlayerCenterX = this.lastPlayerPosition.x;
+        const lastPlayerCenterY = this.lastPlayerPosition.y;
+        const playerMovementX = playerCenterX - lastPlayerCenterX;
+        const playerMovementY = playerCenterY - lastPlayerCenterY;
         const movementMagnitude = Math.sqrt(playerMovementX * playerMovementX + playerMovementY * playerMovementY);
         
         // 如果玩家移动距离不够，跳过方向性生成
@@ -543,8 +600,8 @@ export default class GameScene extends Phaser.Scene {
                 this.adaptiveSpawnDistance.max
             );
             
-            const spawnX = playerX + Math.cos(finalAngle) * distance;
-            const spawnY = playerY + Math.sin(finalAngle) * distance;
+            const spawnX = playerCenterX + Math.cos(finalAngle) * distance;
+            const spawnY = playerCenterY + Math.sin(finalAngle) * distance;
             
             if (this.isValidSpawnPosition(spawnX, spawnY)) {
                 return { x: spawnX, y: spawnY };
@@ -578,15 +635,19 @@ export default class GameScene extends Phaser.Scene {
             return false; // 不是地板，不能生成
         }
         
-        // 检查是否距离玩家太近
-        const distanceToPlayer = Phaser.Math.Distance.Between(this.player.x, this.player.y, x, y);
+        // 使用body中心坐标检查是否距离玩家太近
+        const playerCenterX = this.player.body.x + this.player.body.width / 2;
+        const playerCenterY = this.player.body.y + this.player.body.height / 2;
+        const distanceToPlayer = Phaser.Math.Distance.Between(playerCenterX, playerCenterY, x, y);
         if (distanceToPlayer < this.minSpawnDistance) {
             return false;
         }
         
-        // 检查是否与现有敌人重叠
+        // 使用body中心坐标检查是否与现有敌人重叠
         const tooCloseToEnemy = this.enemies.getChildren().some(enemy => {
-            const distance = Phaser.Math.Distance.Between(enemy.x, enemy.y, x, y);
+            const enemyCenterX = enemy.body.x + enemy.body.width / 2;
+            const enemyCenterY = enemy.body.y + enemy.body.height / 2;
+            const distance = Phaser.Math.Distance.Between(enemyCenterX, enemyCenterY, x, y);
             return distance < 64; // 避免敌人生成得太近
         });
         
@@ -606,7 +667,9 @@ export default class GameScene extends Phaser.Scene {
                 const enemyX = Phaser.Math.Between(room.x + 16, room.right - 16);
                 const enemyY = Phaser.Math.Between(room.y + 16, room.bottom - 16);
                 const enemy = this.enemies.create(enemyX, enemyY, 'enemy');
+                // 设置敌人的碰撞体 - 确保body和精灵对齐
                 enemy.body.setSize(16, 16);
+                enemy.body.setOffset(0, 0); // 确保body和精灵对齐
                 enemy.setCollideWorldBounds(false);
                 console.log(`备用方法：敌人生成在位置: (${enemyX}, ${enemyY})`);
             }
@@ -617,7 +680,9 @@ export default class GameScene extends Phaser.Scene {
                 const enemyX = Phaser.Math.Between(room.x + 16, room.right - 16);
                 const enemyY = Phaser.Math.Between(room.y + 16, room.bottom - 16);
                 const enemy = this.enemies.create(enemyX, enemyY, 'enemy');
+                // 设置敌人的碰撞体 - 确保body和精灵对齐
                 enemy.body.setSize(16, 16);
+                enemy.body.setOffset(0, 0); // 确保body和精灵对齐
                 enemy.setCollideWorldBounds(false);
                 console.log(`备用方法：敌人生成在房间 ${roomIndex}，位置: (${enemyX}, ${enemyY})`);
             }
@@ -647,8 +712,32 @@ export default class GameScene extends Phaser.Scene {
     
     handleEnemyMovement() {
         this.enemies.getChildren().forEach(enemy => {
-            if (this.player.active && Phaser.Math.Distance.Between(this.player.x, this.player.y, enemy.x, enemy.y) < 300) {
-                this.physics.moveToObject(enemy, this.player, this.enemySpeed);
+            if (this.player.active) {
+                // 使用body中心坐标而非精灵坐标进行距离判断
+                const playerCenterX = this.player.body.x + this.player.body.width / 2;
+                const playerCenterY = this.player.body.y + this.player.body.height / 2;
+                const enemyCenterX = enemy.body.x + enemy.body.width / 2;
+                const enemyCenterY = enemy.body.y + enemy.body.height / 2;
+                
+                const distance = Phaser.Math.Distance.Between(
+                    playerCenterX, playerCenterY, 
+                    enemyCenterX, enemyCenterY
+                );
+                
+                if (distance < 300) {
+                    // 使用body中心位置进行移动目标计算
+                    const angle = Phaser.Math.Angle.Between(
+                        enemyCenterX, enemyCenterY,
+                        playerCenterX, playerCenterY
+                    );
+                    const velocity = this.physics.velocityFromAngle(
+                        Phaser.Math.RadToDeg(angle), 
+                        this.enemySpeed
+                    );
+                    enemy.setVelocity(velocity.x, velocity.y);
+                } else {
+                    enemy.setVelocity(0);
+                }
             } else {
                 enemy.setVelocity(0);
             }
@@ -661,8 +750,10 @@ export default class GameScene extends Phaser.Scene {
         const bulletCount = this.upgradeManager.getUpgradeValue(UpgradeManager.UPGRADE_TYPES.BULLET_COUNT);
         const spreadDirections = this.upgradeManager.getUpgradeValue(UpgradeManager.UPGRADE_TYPES.BULLET_SPREAD);
         
-        // 计算鼠标点击方向
-        const baseAngle = Phaser.Math.Angle.Between(this.player.x, this.player.y, pointer.worldX, pointer.worldY);
+        // 使用玩家body中心位置计算鼠标点击方向
+        const playerCenterX = this.player.body.x + this.player.body.width / 2;
+        const playerCenterY = this.player.body.y + this.player.body.height / 2;
+        const baseAngle = Phaser.Math.Angle.Between(playerCenterX, playerCenterY, pointer.worldX, pointer.worldY);
         
         // 如果是散射模式（多个方向）
         if (spreadDirections > 1) {
@@ -672,17 +763,23 @@ export default class GameScene extends Phaser.Scene {
             
             for (let dir = 0; dir < spreadDirections; dir++) {
                 const shootAngle = startAngle + (dir * angleStep);
-                this.createBulletsInDirection(shootAngle, bulletCount);
+                this.createBulletsInDirection(shootAngle, bulletCount, playerCenterX, playerCenterY);
             }
         } else {
             // 单方向射击
-            this.createBulletsInDirection(baseAngle, bulletCount);
+            this.createBulletsInDirection(baseAngle, bulletCount, playerCenterX, playerCenterY);
         }
     }
 
-    createBulletsInDirection(angle, count) {
+    createBulletsInDirection(angle, count, startX, startY) {
+        // 如果没有传入起始位置，使用玩家body中心
+        if (startX === undefined || startY === undefined) {
+            startX = this.player.body.x + this.player.body.width / 2;
+            startY = this.player.body.y + this.player.body.height / 2;
+        }
+        
         for (let i = 0; i < count; i++) {
-            const bullet = this.bullets.get(this.player.x, this.player.y);
+            const bullet = this.bullets.get(startX, startY);
             if (bullet) {
                 bullet.setActive(true);
                 bullet.setVisible(true);
@@ -707,8 +804,16 @@ export default class GameScene extends Phaser.Scene {
         this.playerHp--;
         this.events.emit('updateHP', this.playerHp, this.maxPlayerHp);
 
-        // 击退敌人
-        const knockback = new Phaser.Math.Vector2(enemy.x - player.x, enemy.y - player.y).normalize().scale(200);
+        // 使用body中心坐标计算击退方向
+        const playerCenterX = player.body.x + player.body.width / 2;
+        const playerCenterY = player.body.y + player.body.height / 2;
+        const enemyCenterX = enemy.body.x + enemy.body.width / 2;
+        const enemyCenterY = enemy.body.y + enemy.body.height / 2;
+        
+        const knockback = new Phaser.Math.Vector2(
+            enemyCenterX - playerCenterX, 
+            enemyCenterY - playerCenterY
+        ).normalize().scale(200);
         enemy.setVelocity(knockback.x, knockback.y);
 
         if (this.playerHp <= 0) {
@@ -865,8 +970,11 @@ export default class GameScene extends Phaser.Scene {
 
     // 更新玩家位置跟踪
     updatePlayerPositionTracking() {
-        this.lastPlayerPosition.x = this.player.x;
-        this.lastPlayerPosition.y = this.player.y;
+        // 记录玩家body中心位置而非精灵位置
+        const playerCenterX = this.player.body.x + this.player.body.width / 2;
+        const playerCenterY = this.player.body.y + this.player.body.height / 2;
+        this.lastPlayerPosition.x = playerCenterX;
+        this.lastPlayerPosition.y = playerCenterY;
     }
 
     showPauseMenu() {
@@ -877,5 +985,104 @@ export default class GameScene extends Phaser.Scene {
         this.scene.launch('PauseScene', {
             gameScene: this
         });
+    }
+
+    // 实时位置输出 - 每500ms输出一次
+    logPositionInfo() {
+        // 精灵位置
+        const spriteX = Math.round(this.player.x);
+        const spriteY = Math.round(this.player.y);
+        
+        // Body位置及中心点
+        const bodyX = Math.round(this.player.body.x);
+        const bodyY = Math.round(this.player.body.y);
+        const playerCenterX = this.player.body.x + this.player.body.width / 2;
+        const playerCenterY = this.player.body.y + this.player.body.height / 2;
+        
+        // 获取所有敌人的位置（基于body中心坐标计算距离）
+        const enemies = this.enemies.getChildren();
+        const enemyPositions = enemies.map(enemy => {
+            const enemyCenterX = enemy.body.x + enemy.body.width / 2;
+            const enemyCenterY = enemy.body.y + enemy.body.height / 2;
+            return {
+                x: Math.round(enemy.x), 
+                y: Math.round(enemy.y),
+                bodyX: Math.round(enemy.body.x),
+                bodyY: Math.round(enemy.body.y),
+                distance: Math.round(Phaser.Math.Distance.Between(
+                    playerCenterX, playerCenterY, 
+                    enemyCenterX, enemyCenterY
+                ))
+            };
+        });
+        
+        // 找到最近的敌人（基于body中心距离）
+        let nearestEnemy = null;
+        let shortestDistance = Infinity;
+        
+        enemies.forEach(enemy => {
+            if (enemy.active) {
+                const enemyCenterX = enemy.body.x + enemy.body.width / 2;
+                const enemyCenterY = enemy.body.y + enemy.body.height / 2;
+                const distance = Phaser.Math.Distance.Between(
+                    playerCenterX, playerCenterY, 
+                    enemyCenterX, enemyCenterY
+                );
+                if (distance < shortestDistance) {
+                    shortestDistance = distance;
+                    nearestEnemy = {
+                        spriteX: Math.round(enemy.x),
+                        spriteY: Math.round(enemy.y),
+                        bodyX: Math.round(enemy.body.x),
+                        bodyY: Math.round(enemy.body.y),
+                        distance: Math.round(distance)
+                    };
+                }
+            }
+        });
+        
+        console.log('=== 实时位置信息 (基于Body中心距离) ===');
+        console.log(`玩家精灵位置: (${spriteX}, ${spriteY})`);
+        console.log(`玩家Body位置: (${bodyX}, ${bodyY})`);
+        console.log(`玩家Body中心: (${Math.round(playerCenterX)}, ${Math.round(playerCenterY)})`);
+        
+        if (nearestEnemy) {
+            console.log(`最近怪物精灵: (${nearestEnemy.spriteX}, ${nearestEnemy.spriteY})`);
+            console.log(`最近怪物Body: (${nearestEnemy.bodyX}, ${nearestEnemy.bodyY})`);
+            console.log(`Body中心距离: ${nearestEnemy.distance}`);
+        } else {
+            console.log('最近怪物: 无');
+        }
+        
+        if (enemyPositions.length > 0) {
+            console.log(`所有敌人Body中心距离: ${enemyPositions.map(pos => `(${pos.x}, ${pos.y})[${pos.distance}]`).join(', ')}`);
+        }
+        console.log('==========================================');
+    }
+
+    // 新增：调试信息开关
+    toggleDebug() {
+        this.debugEnabled = !this.debugEnabled;
+        // 通知 UI 场景显示/隐藏调试信息
+        this.events.emit('debugToggled', this.debugEnabled);
+
+        // 切换物理世界调试绘制
+        if (this.debugEnabled) {
+            this.physics.world.drawDebug = true;
+            // 若未创建 debugGraphic，则创建
+            if (!this.physics.world.debugGraphic) {
+                this.physics.world.createDebugGraphic();
+            }
+            if (this.physics.world.debugGraphic) {
+                this.physics.world.debugGraphic.setVisible(true);
+            }
+        } else {
+            this.physics.world.drawDebug = false;
+            if (this.physics.world.debugGraphic) {
+                this.physics.world.debugGraphic.setVisible(false);
+            }
+        }
+
+        console.log('Debug 模式:', this.debugEnabled ? '开启' : '关闭');
     }
 }

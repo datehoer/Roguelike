@@ -18,7 +18,7 @@ const config = {
         default: 'arcade',
         arcade: {
             gravity: { y: 0 },
-            // debug: true // 打开这个可以看碰撞体
+            debug: false // 默认关闭调试绘制，可通过调试开关开启
         }
     },
     scene: [MenuScene, PreloaderScene, GameScene, UIScene, GameOverScene, LeaderboardScene, UpgradeScene, PauseScene]

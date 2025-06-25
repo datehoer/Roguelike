@@ -37,12 +37,11 @@ export default class PreloaderScene extends Phaser.Scene {
             this.startGame();
         });
         
+        // --- 加载图片资源 ---
+        // 加载哪吒角色图片
+        this.load.image('player', 'src/assets/nezha.png');
+        
         // --- 动态生成纹理 ---
-        // 玩家 (蓝色方块)
-        this.make.graphics({ fillStyle: { color: 0x0000ff } })
-            .fillRect(0, 0, 16, 16)
-            .generateTexture('player', 16, 16);
-
         // 敌人 (红色方块)
         this.make.graphics({ fillStyle: { color: 0xff0000 } })
             .fillRect(0, 0, 16, 16)

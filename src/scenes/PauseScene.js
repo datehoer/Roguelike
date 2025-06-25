@@ -33,8 +33,8 @@ export default class PauseScene extends Phaser.Scene {
             repeat: -1
         });
 
-        // 继续游戏按钮
-        const continueButton = this.add.rectangle(width / 2, height * 0.5, 220, 60, 0x16537e)
+        // 继续游戏按钮 - 左上
+        const continueButton = this.add.rectangle(width * 0.35, height * 0.55, 200, 60, 0x16537e)
             .setInteractive({ useHandCursor: true })
             .on('pointerover', () => {
                 continueButton.setFillStyle(0x1e90ff);
@@ -56,14 +56,14 @@ export default class PauseScene extends Phaser.Scene {
             })
             .on('pointerdown', () => this.resumeGame());
 
-        this.add.text(width / 2, height * 0.5, '继续游戏', {
-            fontSize: '24px',
+        this.add.text(width * 0.35, height * 0.55, '继续游戏', {
+            fontSize: '22px',
             fill: '#ffffff',
             fontFamily: 'Arial'
         }).setOrigin(0.5);
 
-        // 重新开始按钮
-        const restartButton = this.add.rectangle(width / 2, height * 0.62, 220, 60, 0x0f3460)
+        // 重新开始按钮 - 右上
+        const restartButton = this.add.rectangle(width * 0.65, height * 0.55, 200, 60, 0x0f3460)
             .setInteractive({ useHandCursor: true })
             .on('pointerover', () => {
                 restartButton.setFillStyle(0x16537e);
@@ -85,14 +85,35 @@ export default class PauseScene extends Phaser.Scene {
             })
             .on('pointerdown', () => this.restartGame());
 
-        this.add.text(width / 2, height * 0.62, '重新开始', {
-            fontSize: '24px',
+        this.add.text(width * 0.65, height * 0.55, '重新开始', {
+            fontSize: '22px',
             fill: '#ffffff',
             fontFamily: 'Arial'
         }).setOrigin(0.5);
 
-        // 返回主菜单按钮
-        const menuButton = this.add.rectangle(width / 2, height * 0.74, 220, 60, 0x8b0000)
+        // 调试信息开关按钮 - 左下
+        const debugButton = this.add.rectangle(width * 0.35, height * 0.7, 200, 60, 0x4b5320)
+            .setInteractive({ useHandCursor: true })
+            .on('pointerover', () => {
+                debugButton.setFillStyle(0x6b8e23);
+                this.tweens.add({ targets: debugButton, scaleX: 1.1, scaleY: 1.1, duration: 100 });
+            })
+            .on('pointerout', () => {
+                debugButton.setFillStyle(0x4b5320);
+                this.tweens.add({ targets: debugButton, scaleX: 1, scaleY: 1, duration: 100 });
+            })
+            .on('pointerdown', () => {
+                this.toggleDebug(debugButtonText);
+            });
+
+        const debugButtonText = this.add.text(width * 0.35, height * 0.7, this.gameScene.debugEnabled ? '隐藏调试信息' : '显示调试信息', {
+            fontSize: '20px',
+            fill: '#ffffff',
+            fontFamily: 'Arial'
+        }).setOrigin(0.5);
+
+        // 返回主菜单按钮 - 右下
+        const menuButton = this.add.rectangle(width * 0.65, height * 0.7, 200, 60, 0x8b0000)
             .setInteractive({ useHandCursor: true })
             .on('pointerover', () => {
                 menuButton.setFillStyle(0xff0000);
@@ -114,14 +135,14 @@ export default class PauseScene extends Phaser.Scene {
             })
             .on('pointerdown', () => this.returnToMenu());
 
-        this.add.text(width / 2, height * 0.74, '返回主菜单', {
-            fontSize: '24px',
+        this.add.text(width * 0.65, height * 0.7, '返回主菜单', {
+            fontSize: '22px',
             fill: '#ffffff',
             fontFamily: 'Arial'
         }).setOrigin(0.5);
 
         // 操作提示
-        this.add.text(width / 2, height * 0.88, '按 ESC 键继续游戏', {
+        this.add.text(width / 2, height * 0.85, '按 ESC 键继续游戏', {
             fontSize: '16px',
             fill: '#aaaaaa',
             fontFamily: 'Arial'
@@ -159,5 +180,14 @@ export default class PauseScene extends Phaser.Scene {
         
         // 返回主菜单
         this.scene.start('Menu');
+    }
+
+    // 调试信息开关方法
+    toggleDebug(labelText) {
+        if (this.gameScene && this.gameScene.toggleDebug) {
+            this.gameScene.toggleDebug();
+            // 更新按钮文字
+            labelText.setText(this.gameScene.debugEnabled ? '隐藏调试信息' : '显示调试信息');
+        }
     }
 } 
