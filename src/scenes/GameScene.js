@@ -20,30 +20,111 @@ export default class GameScene extends Phaser.Scene {
         this.upgradeManager = new UpgradeManager();
         
         // 新增：难度系统相关变量
-        this.baseEnemyCount = 3; // 基础敌人数量
-        this.maxEnemyCount = 20; // 最大敌人数量
+        this.baseEnemyCount = 8; // 增加基础敌人数量：从3到8
+        this.maxEnemyCount = 80; // 大幅增加最大敌人数量：从50到80以支持更多强化敌人
         this.scoreThresholds = [0, 50, 100, 200, 400, 800, 1600]; // 分数阈值
-        this.respawnDelayBase = 3000; // 基础重生延迟（毫秒）
-        this.minRespawnDelay = 500; // 最小重生延迟（毫秒）
+        this.respawnDelayBase = 2000; // 减少基础重生延迟：从3000到2000毫秒
+        this.minRespawnDelay = 300; // 减少最小重生延迟：从500到300毫秒
         
         // 新增：动态生成相关变量
-        this.proximitySpawnRadius = 400; // 玩家周围生成范围
-        this.minSpawnDistance = 250; // 最小生成距离（增加到250像素，避免直接在玩家身边生成）
-        this.maxSpawnDistance = 600; // 最大生成距离
-        this.spawnAttempts = 20; // 寻找有效生成位置的最大尝试次数
+        this.proximitySpawnRadius = 600; // 增加玩家周围生成范围：从400到600
+        this.minSpawnDistance = 200; // 减少最小生成距离：从250到200，让敌人更容易生成
+        this.maxSpawnDistance = 800; // 增加最大生成距离：从600到800
+        this.spawnAttempts = 30; // 增加寻找有效生成位置的最大尝试次数：从20到30
         
         // 新增：智能生成相关变量
         this.lastPlayerPosition = { x: 0, y: 0 }; // 记录上次玩家位置
         this.playerMovementThreshold = 100; // 玩家移动阈值
-        this.adaptiveSpawnDistance = { min: 200, max: 600 }; // 自适应生成距离（提高最小值）
+        this.adaptiveSpawnDistance = { min: 180, max: 800 }; // 调整自适应生成距离
         this.enemyDistributionCheck = true; // 是否检查敌人分布
         
         // 添加定期检查计时器
         this.lastEnemyCheck = 0;
-        this.enemyCheckInterval = 5000; // 每5秒检查一次敌人数量
+        this.enemyCheckInterval = 3000; // 减少检查间隔：从5秒到3秒，增加敌人生成频率
         this.lastDifficultyLevel = 0; // 记录上次的难度等级
+        
+        // 新增：敌人强化系统相关变量
+        this.enemyEnhancementLevels = [
+            { // 等级0：普通敌人
+                name: '普通小龙人',
+                hp: 1,
+                speed: 1.0,
+                scale: 1.0,
+                tint: 0xffffff,
+                scoreValue: 10,
+                spawnWeight: 100 // 生成权重，数值越高越容易生成
+            },
+            { // 等级1：精英敌人
+                name: '精英小龙人',
+                hp: 2,
+                speed: 1.2,
+                scale: 1.1,
+                tint: 0x00ff00, // 绿色
+                scoreValue: 20,
+                spawnWeight: 30
+            },
+            { // 等级2：头目敌人
+                name: '头目小龙人',
+                hp: 3,
+                speed: 1.4,
+                scale: 1.25,
+                tint: 0x0080ff, // 蓝色
+                scoreValue: 35,
+                spawnWeight: 15
+            },
+            { // 等级3：王者敌人
+                name: '王者小龙人',
+                hp: 5,
+                speed: 1.6,
+                scale: 1.4,
+                tint: 0x8000ff, // 紫色
+                scoreValue: 60,
+                spawnWeight: 8
+            },
+            { // 等级4：传说敌人
+                name: '传说小龙人',
+                hp: 8,
+                speed: 1.8,
+                scale: 1.6,
+                tint: 0xff8000, // 橙色
+                scoreValue: 100,
+                spawnWeight: 3
+            },
+            { // 等级5：神话敌人
+                name: '神话小龙人',
+                hp: 12,
+                speed: 2.0,
+                scale: 1.8,
+                tint: 0xff0000, // 红色
+                scoreValue: 180,
+                spawnWeight: 1
+            }
+        ];
+        
         // 新增：调试模式开关
         this.debugEnabled = false;
+        
+        // 新增：新技能相关变量
+        this.lastShootTime = 0; // 上次射击时间
+        this.shootInterval = 300; // 射击间隔(ms)
+        
+        // 火焰护体相关
+        this.fireShieldActive = false;
+        this.fireShieldEffects = null; // 火焰护体效果组
+        this.fireShieldRadius = 80; // 火焰护体半径
+        this.fireShieldDamageDelay = 800; // 火焰护体伤害间隔(ms)，避免瞬间秒杀
+        this.enemyFireDamageTimers = new Map(); // 记录每个敌人的火焰伤害计时器
+        
+        // 瞬移突进相关
+        this.dashCooldown = 2000; // 瞬移冷却时间(ms)
+        this.lastDashTime = 0;
+        
+        // 分身术相关
+        this.clones = null; // 分身组
+        this.cloneShootTimer = 0; // 分身射击计时器
+        
+        // 爆炸效果相关
+        this.explosions = null; // 爆炸效果组
     }
 
     create() {
@@ -56,8 +137,13 @@ export default class GameScene extends Phaser.Scene {
         this.score = 0;
         this.playerSpeed = 200; // 重置速度
         
-        // 1. 地图生成
-        this.map = this.make.tilemap({ tileWidth: 32, tileHeight: 32, width: 50, height: 50 });
+        // 1. 地图生成 - 修改为超大地图实现无限感觉
+        this.map = this.make.tilemap({ 
+            tileWidth: 32, 
+            tileHeight: 32, 
+            width: 200,  // 从50增加到200
+            height: 200  // 从50增加到200
+        });
         const tileset = this.map.addTilesetImage('floor', 'floor', 32, 32);
         const wallTileset = this.map.addTilesetImage('wall', 'wall', 32, 32);
 
@@ -115,8 +201,28 @@ export default class GameScene extends Phaser.Scene {
             console.log(`混天绫纹理尺寸: ${huntianlingWidth}x${huntianlingHeight}px`);
         }
         
-        this.physics.add.collider(this.bullets, this.wallLayer, (bullet) => bullet.destroy());
+        this.physics.add.collider(this.bullets, this.wallLayer, this.handleBulletWallCollision, null, this);
         this.physics.add.overlap(this.bullets, this.enemies, this.handleBulletEnemyCollision, null, this);
+
+        // 新增：技能相关的游戏对象组
+        // 火焰护体效果组
+        this.fireShieldEffects = this.add.group();
+        
+        // 分身组
+        this.clones = this.physics.add.group();
+        this.physics.add.collider(this.clones, this.wallLayer);
+        this.physics.add.collider(this.clones, this.enemies);
+        
+        // 分身子弹组
+        this.cloneBullets = this.physics.add.group({
+            defaultKey: 'huntianling',
+            maxSize: 50
+        });
+        this.physics.add.collider(this.cloneBullets, this.wallLayer, (bullet) => bullet.destroy());
+        this.physics.add.overlap(this.cloneBullets, this.enemies, this.handleBulletEnemyCollision, null, this);
+        
+        // 爆炸效果组
+        this.explosions = this.add.group();
 
         // 6. 输入控制
         this.cursors = this.input.keyboard.createCursorKeys();
@@ -125,6 +231,10 @@ export default class GameScene extends Phaser.Scene {
         // 添加ESC键支持暂停功能
         this.escKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.ESC);
         this.escKey.on('down', () => this.showPauseMenu());
+        
+        // 添加空格键支持瞬移突进
+        this.spaceKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
+        
         this.input.on('pointerdown', this.shoot, this);
 
         // 7. 摄像头
@@ -171,6 +281,9 @@ export default class GameScene extends Phaser.Scene {
 
             // 检查升级触发
             this.checkUpgradeAvailable();
+            
+            // 新增：新技能更新逻辑
+            this.updateNewSkills();
             
             // 实时位置输出 - 每500ms输出一次
             if (this.debugEnabled && (!this.lastPositionLog || currentTime - this.lastPositionLog > 500)) {
@@ -232,6 +345,60 @@ export default class GameScene extends Phaser.Scene {
                 this.playerSpeed = upgradeManager.getUpgradeValue(upgradeType);
                 console.log('移动速度升级到:', this.playerSpeed);
                 break;
+                
+            // 新增技能应用
+            case UpgradeManager.UPGRADE_TYPES.FIRE_SHIELD:
+                const fireShieldLevel = upgradeManager.getUpgradeValue(upgradeType);
+                console.log('火焰护体升级到等级:', fireShieldLevel);
+                if (fireShieldLevel === 1) {
+                    console.log('火焰护体已激活！');
+                }
+                break;
+                
+            case UpgradeManager.UPGRADE_TYPES.DASH_ATTACK:
+                const dashLevel = upgradeManager.getUpgradeValue(upgradeType);
+                console.log('瞬移突进升级到等级:', dashLevel);
+                if (dashLevel === 1) {
+                    console.log('瞬移突进技能已获得！按空格键瞬移到鼠标位置');
+                }
+                // 每级减少冷却时间
+                this.dashCooldown = Math.max(500, 2000 - (dashLevel - 1) * 300);
+                console.log('瞬移冷却时间:', this.dashCooldown / 1000, '秒');
+                break;
+                
+            case UpgradeManager.UPGRADE_TYPES.BULLET_PIERCE:
+                const pierceCount = upgradeManager.getUpgradeValue(upgradeType);
+                console.log('混天绫穿透升级到:', pierceCount, '次');
+                break;
+                
+            case UpgradeManager.UPGRADE_TYPES.SUMMON_CLONE:
+                const cloneCount = upgradeManager.getUpgradeValue(upgradeType);
+                console.log('分身术升级到:', cloneCount, '个分身');
+                break;
+                
+            case UpgradeManager.UPGRADE_TYPES.BULLET_BOUNCE:
+                const bounceCount = upgradeManager.getUpgradeValue(upgradeType);
+                console.log('子弹反弹升级到:', bounceCount, '次');
+                break;
+                
+            case UpgradeManager.UPGRADE_TYPES.LIFE_STEAL:
+                const lifeStealChance = upgradeManager.getUpgradeValue(upgradeType);
+                console.log('生命吸取升级到:', lifeStealChance, '% 几率');
+                break;
+                
+            case UpgradeManager.UPGRADE_TYPES.ATTACK_SPEED:
+                const newShootInterval = upgradeManager.getUpgradeValue(upgradeType);
+                this.shootInterval = newShootInterval;
+                console.log('攻击速度升级到:', (this.shootInterval / 1000).toFixed(2), '秒间隔');
+                break;
+                
+            case UpgradeManager.UPGRADE_TYPES.EXPLOSIVE_SHOT:
+                const explosiveLevel = upgradeManager.getUpgradeValue(upgradeType);
+                console.log('爆炸冲击升级到等级:', explosiveLevel);
+                if (explosiveLevel === 1) {
+                    console.log('爆炸冲击已激活！混天绫命中敌人时会产生爆炸');
+                }
+                break;
         }
 
         // 发送升级事件通知UI
@@ -245,9 +412,9 @@ export default class GameScene extends Phaser.Scene {
         this.wallLayer.fill(1, 0, 0, this.map.width, this.map.height);
 
         this.rooms = [];
-        const maxRooms = 15; // 增加房间数量
-        const minRoomSize = 6; // 尺寸单位: 瓦片
-        const maxRoomSize = 12; // 尺寸单位: 瓦片
+        const maxRooms = 120; // 大幅增加房间数量：从15增加到120
+        const minRoomSize = 4; // 减小最小房间尺寸，增加密度
+        const maxRoomSize = 16; // 增加最大房间尺寸，提供多样性
 
         // 第一阶段：生成房间
         for (let i = 0; i < maxRooms; i++) {
@@ -269,8 +436,9 @@ export default class GameScene extends Phaser.Scene {
                     otherRoom.x / 32, otherRoom.y / 32, 
                     otherRoom.width / 32, otherRoom.height / 32
                 );
+                // 减小间隙要求，允许更密集的房间布局
                 if (Phaser.Geom.Intersects.RectangleToRectangle(newRoomInTiles, 
-                    Phaser.Geom.Rectangle.Inflate(otherRoomTiles, 2, 2))) {
+                    Phaser.Geom.Rectangle.Inflate(otherRoomTiles, 1, 1))) { // 从2,2减少到1,1
                     failed = true;
                     break;
                 }
@@ -288,6 +456,8 @@ export default class GameScene extends Phaser.Scene {
                 this.rooms.push(newRoomInPixels);
             }
         }
+
+        console.log(`成功生成 ${this.rooms.length} 个房间，目标 ${maxRooms} 个房间`);
 
         // 第二阶段：确保所有房间连通
         this.ensureAllRoomsConnected();
@@ -354,7 +524,9 @@ export default class GameScene extends Phaser.Scene {
 
     // 添加额外的连接以增加路径多样性
     addExtraConnections() {
-        const extraConnections = Math.floor(this.rooms.length / 3); // 添加一些额外连接
+        const extraConnections = Math.floor(this.rooms.length / 2); // 增加更多额外连接：从1/3改为1/2
+        
+        console.log(`添加 ${extraConnections} 个额外连接以增加路径多样性`);
         
         for (let i = 0; i < extraConnections; i++) {
             const roomA = Phaser.Utils.Array.GetRandom(this.rooms);
@@ -454,30 +626,116 @@ export default class GameScene extends Phaser.Scene {
     digHorizontalCorridor(x1, x2, y) {
         const startX = this.map.worldToTileX(Math.min(x1, x2));
         const endX = this.map.worldToTileX(Math.max(x1, x2));
-        const tileY = this.map.worldToTileY(y);
+        const centerTileY = this.map.worldToTileY(y);
 
+        // 挖掘3个瓦片宽度的水平通道（上中下三行）
         for (let x = startX; x <= endX; x++) {
-            this.floorLayer.putTileAt(0, x, tileY);
-            this.wallLayer.putTileAt(-1, x, tileY);
+            for (let yOffset = -1; yOffset <= 1; yOffset++) {
+                const tileY = centerTileY + yOffset;
+                
+                // 确保不超出地图边界
+                if (tileY >= 0 && tileY < this.map.height) {
+                    this.floorLayer.putTileAt(0, x, tileY);
+                    this.wallLayer.putTileAt(-1, x, tileY);
+                }
+            }
         }
     }
 
     digVerticalCorridor(y1, y2, x) {
         const startY = this.map.worldToTileY(Math.min(y1, y2));
         const endY = this.map.worldToTileY(Math.max(y1, y2));
-        const tileX = this.map.worldToTileX(x);
+        const centerTileX = this.map.worldToTileX(x);
 
+        // 挖掘3个瓦片宽度的垂直通道（左中右三列）
         for (let y = startY; y <= endY; y++) {
-            this.floorLayer.putTileAt(0, tileX, y);
-            this.wallLayer.putTileAt(-1, tileX, y);
+            for (let xOffset = -1; xOffset <= 1; xOffset++) {
+                const tileX = centerTileX + xOffset;
+                
+                // 确保不超出地图边界
+                if (tileX >= 0 && tileX < this.map.width) {
+                    this.floorLayer.putTileAt(0, tileX, y);
+                    this.wallLayer.putTileAt(-1, tileX, y);
+                }
+            }
         }
     }
 
     // --- 主要修改区域结束 ---
 
 
+    // 新增：根据分数计算敌人强化等级概率分布
+    getEnemyEnhancementDistribution(score) {
+        let distribution = [];
+        
+        // 根据分数解锁不同等级的敌人
+        if (score >= 0) {
+            distribution.push({ level: 0, weight: this.enemyEnhancementLevels[0].spawnWeight });
+        }
+        if (score >= 100) {
+            distribution.push({ level: 1, weight: this.enemyEnhancementLevels[1].spawnWeight });
+        }
+        if (score >= 300) {
+            distribution.push({ level: 2, weight: this.enemyEnhancementLevels[2].spawnWeight });
+        }
+        if (score >= 600) {
+            distribution.push({ level: 3, weight: this.enemyEnhancementLevels[3].spawnWeight });
+        }
+        if (score >= 1200) {
+            distribution.push({ level: 4, weight: this.enemyEnhancementLevels[4].spawnWeight });
+        }
+        if (score >= 2400) {
+            distribution.push({ level: 5, weight: this.enemyEnhancementLevels[5].spawnWeight });
+        }
+        
+        // 随着分数增加，降低低级敌人的权重，增加高级敌人的权重
+        if (score >= 500) {
+            distribution.forEach(item => {
+                if (item.level === 0) item.weight *= 0.7; // 普通敌人权重降低30%
+            });
+        }
+        if (score >= 1000) {
+            distribution.forEach(item => {
+                if (item.level <= 1) item.weight *= 0.6; // 低级敌人权重再降低40%
+                if (item.level >= 3) item.weight *= 1.5; // 高级敌人权重增加50%
+            });
+        }
+        if (score >= 2000) {
+            distribution.forEach(item => {
+                if (item.level <= 2) item.weight *= 0.4; // 中低级敌人权重大幅降低
+                if (item.level >= 4) item.weight *= 2.0; // 顶级敌人权重翻倍
+            });
+        }
+        
+        return distribution;
+    }
+
+    // 新增：根据权重随机选择敌人强化等级
+    selectEnemyEnhancementLevel(score) {
+        const distribution = this.getEnemyEnhancementDistribution(score);
+        
+        if (distribution.length === 0) {
+            return 0; // 默认返回普通敌人
+        }
+        
+        // 计算总权重
+        const totalWeight = distribution.reduce((sum, item) => sum + item.weight, 0);
+        
+        // 随机选择
+        let random = Math.random() * totalWeight;
+        
+        for (const item of distribution) {
+            random -= item.weight;
+            if (random <= 0) {
+                return item.level;
+            }
+        }
+        
+        return distribution[distribution.length - 1].level; // 默认返回最后一个
+    }
+
     spawnEnemies(count) {
-        console.log(`尝试生成 ${count} 个敌人，当前房间数量: ${this.rooms.length}`);
+        console.log(`尝试生成 ${count} 个强化敌人，当前房间数量: ${this.rooms.length}`);
         
         // 定义可用的小龙人贴图数组
         const dragonTextures = ['xiaolongren', 'xiaolongren1', 'xiaolongren2'];
@@ -488,24 +746,15 @@ export default class GameScene extends Phaser.Scene {
             if (spawnPosition) {
                 // 随机选择一种小龙人贴图
                 const randomTexture = Phaser.Utils.Array.GetRandom(dragonTextures);
+                
+                // 根据当前分数选择敌人强化等级
+                const enhancementLevel = this.selectEnemyEnhancementLevel(this.score);
+                const enhancement = this.enemyEnhancementLevels[enhancementLevel];
+                
                 const enemy = this.enemies.create(spawnPosition.x, spawnPosition.y, randomTexture);
                 
-                // 设置小龙人的缩放和碰撞体，参考玩家设置
-                // 假设小龙人图片尺寸和玩家类似，如果实际尺寸不同请调整scale值
-                const enemyScale = 0.035; // 相比玩家稍小一点
-                enemy.setScale(enemyScale);
-                
-                // 设置碰撞体，参考玩家的设置方式
-                const targetEnemyBodySize = 28; // 敌人碰撞体稍小于玩家
-                const enemyBodySize = targetEnemyBodySize / enemyScale;
-                enemy.body.setSize(enemyBodySize, enemyBodySize);
-                
-                // 设置偏移量使其在纹理中居中，假设图片尺寸为1024x1024
-                const enemyTextureSize = 1024; // 如果xiaolongren图片尺寸不同，请调整此值
-                const enemyOffset = (enemyTextureSize - enemyBodySize) / 2;
-                enemy.body.setOffset(enemyOffset, enemyOffset);
-                
-                enemy.setCollideWorldBounds(false);
+                // 应用强化效果
+                this.applyEnemyEnhancement(enemy, enhancementLevel);
                 
                 // 使用body中心坐标计算距离
                 const playerCenterX = this.player.body.x + this.player.body.width / 2;
@@ -517,7 +766,7 @@ export default class GameScene extends Phaser.Scene {
                     enemyCenterX, enemyCenterY
                 );
                 
-                console.log(`敌人生成在位置: (${spawnPosition.x}, ${spawnPosition.y})，使用贴图: ${randomTexture}，Body中心距离玩家: ${Math.round(distanceToPlayer)}像素`);
+                console.log(`${enhancement.name}生成在位置: (${spawnPosition.x}, ${spawnPosition.y})，使用贴图: ${randomTexture}，血量: ${enhancement.hp}，Body中心距离玩家: ${Math.round(distanceToPlayer)}像素`);
             } else {
                 console.log('无法找到有效的生成位置，使用备用方法');
                 this.fallbackSpawnEnemy();
@@ -697,78 +946,36 @@ export default class GameScene extends Phaser.Scene {
         // 尝试在现有房间中生成（原来的逻辑作为备用），但要检查距离
         let spawnSuccess = false;
         
-        // 先尝试在除玩家当前房间外的其他房间生成
-        if (this.rooms.length >= 2) {
-            for (let attempt = 0; attempt < 10; attempt++) {
-                const roomIndex = Phaser.Math.Between(1, this.rooms.length - 1);
+        // 在无限地牢中，我们有更多房间可以选择
+        if (this.rooms.length >= 5) { // 降低房间数量要求
+            // 增加尝试次数，在更大的地牢中寻找合适位置
+            for (let attempt = 0; attempt < 20; attempt++) { // 从10增加到20次尝试
+                // 随机选择任意房间，不限制只能是非玩家房间
+                const roomIndex = Phaser.Math.Between(0, this.rooms.length - 1);
                 const room = this.rooms[roomIndex];
                 if (room) {
                     const enemyX = Phaser.Math.Between(room.x + 16, room.right - 16);
                     const enemyY = Phaser.Math.Between(room.y + 16, room.bottom - 16);
                     
-                    // 检查距离玩家是否足够远
+                    // 在无限地牢中，可以适当降低最小距离要求
                     const distanceToPlayer = Phaser.Math.Distance.Between(
                         playerCenterX, playerCenterY, enemyX, enemyY
                     );
                     
-                    if (distanceToPlayer >= this.minSpawnDistance) {
+                    if (distanceToPlayer >= this.minSpawnDistance - 50) { // 稍微降低距离要求
                         // 随机选择一种小龙人贴图
                         const randomTexture = Phaser.Utils.Array.GetRandom(dragonTextures);
+                        
+                        // 根据当前分数选择敌人强化等级
+                        const enhancementLevel = this.selectEnemyEnhancementLevel(this.score);
+                        const enhancement = this.enemyEnhancementLevels[enhancementLevel];
+                        
                         const enemy = this.enemies.create(enemyX, enemyY, randomTexture);
                         
-                        // 设置小龙人的缩放和碰撞体，与主要生成方法保持一致
-                        const enemyScale = 0.035;
-                        enemy.setScale(enemyScale);
+                        // 应用强化效果
+                        this.applyEnemyEnhancement(enemy, enhancementLevel);
                         
-                        const targetEnemyBodySize = 28;
-                        const enemyBodySize = targetEnemyBodySize / enemyScale;
-                        enemy.body.setSize(enemyBodySize, enemyBodySize);
-                        
-                        const enemyTextureSize = 1024;
-                        const enemyOffset = (enemyTextureSize - enemyBodySize) / 2;
-                        enemy.body.setOffset(enemyOffset, enemyOffset);
-                        
-                        enemy.setCollideWorldBounds(false);
-                        console.log(`备用方法：敌人生成在房间 ${roomIndex}，位置: (${enemyX}, ${enemyY})，使用贴图: ${randomTexture}，距离玩家: ${Math.round(distanceToPlayer)}像素`);
-                        spawnSuccess = true;
-                        break;
-                    }
-                }
-            }
-        }
-        
-        // 如果上面的方法失败，尝试在第一个房间（玩家房间）的边缘生成
-        if (!spawnSuccess && this.rooms.length > 0) {
-            const room = this.rooms[0];
-            if (room) {
-                for (let attempt = 0; attempt < 10; attempt++) {
-                    const enemyX = Phaser.Math.Between(room.x + 16, room.right - 16);
-                    const enemyY = Phaser.Math.Between(room.y + 16, room.bottom - 16);
-                    
-                    // 检查距离玩家是否足够远
-                    const distanceToPlayer = Phaser.Math.Distance.Between(
-                        playerCenterX, playerCenterY, enemyX, enemyY
-                    );
-                    
-                    if (distanceToPlayer >= this.minSpawnDistance) {
-                        // 随机选择一种小龙人贴图
-                        const randomTexture = Phaser.Utils.Array.GetRandom(dragonTextures);
-                        const enemy = this.enemies.create(enemyX, enemyY, randomTexture);
-                        
-                        // 设置小龙人的缩放和碰撞体，与主要生成方法保持一致
-                        const enemyScale = 0.035;
-                        enemy.setScale(enemyScale);
-                        
-                        const targetEnemyBodySize = 28;
-                        const enemyBodySize = targetEnemyBodySize / enemyScale;
-                        enemy.body.setSize(enemyBodySize, enemyBodySize);
-                        
-                        const enemyTextureSize = 1024;
-                        const enemyOffset = (enemyTextureSize - enemyBodySize) / 2;
-                        enemy.body.setOffset(enemyOffset, enemyOffset);
-                        
-                        enemy.setCollideWorldBounds(false);
-                        console.log(`备用方法：敌人生成在位置: (${enemyX}, ${enemyY})，使用贴图: ${randomTexture}，距离玩家: ${Math.round(distanceToPlayer)}像素`);
+                        console.log(`备用方法：${enhancement.name}生成在房间 ${roomIndex}，位置: (${enemyX}, ${enemyY})，使用贴图: ${randomTexture}，血量: ${enhancement.hp}，距离玩家: ${Math.round(distanceToPlayer)}像素`);
                         spawnSuccess = true;
                         break;
                     }
@@ -777,7 +984,7 @@ export default class GameScene extends Phaser.Scene {
         }
         
         if (!spawnSuccess) {
-            console.log('备用生成方法：无法找到足够远的位置生成敌人');
+            console.log('备用生成方法：在无限地牢中无法找到合适位置生成强化敌人');
         }
     }
 
@@ -805,6 +1012,9 @@ export default class GameScene extends Phaser.Scene {
     handleEnemyMovement() {
         this.enemies.getChildren().forEach(enemy => {
             if (this.player.active) {
+                // 更新血量条位置
+                this.updateEnemyHealthBar(enemy);
+                
                 // 使用body中心坐标而非精灵坐标进行距离判断
                 const playerCenterX = this.player.body.x + this.player.body.width / 2;
                 const playerCenterY = this.player.body.y + this.player.body.height / 2;
@@ -817,6 +1027,10 @@ export default class GameScene extends Phaser.Scene {
                 );
                 
                 if (distance < 300) {
+                    // 获取敌人的速度倍数
+                    const speedMultiplier = enemy.getData('speedMultiplier') || 1.0;
+                    const finalSpeed = this.enemySpeed * speedMultiplier;
+                    
                     // 使用body中心位置进行移动目标计算
                     const angle = Phaser.Math.Angle.Between(
                         enemyCenterX, enemyCenterY,
@@ -824,7 +1038,7 @@ export default class GameScene extends Phaser.Scene {
                     );
                     const velocity = this.physics.velocityFromAngle(
                         Phaser.Math.RadToDeg(angle), 
-                        this.enemySpeed
+                        finalSpeed
                     );
                     enemy.setVelocity(velocity.x, velocity.y);
                 } else {
@@ -838,6 +1052,13 @@ export default class GameScene extends Phaser.Scene {
 
     shoot(pointer) {
         if (!this.player.active) return;
+        
+        // 检查射击间隔
+        const currentTime = this.time.now;
+        if (currentTime - this.lastShootTime < this.shootInterval) {
+            return; // 还在冷却中
+        }
+        this.lastShootTime = currentTime;
         
         const bulletCount = this.upgradeManager.getUpgradeValue(UpgradeManager.UPGRADE_TYPES.BULLET_COUNT);
         const spreadDirections = this.upgradeManager.getUpgradeValue(UpgradeManager.UPGRADE_TYPES.BULLET_SPREAD);
@@ -905,6 +1126,12 @@ export default class GameScene extends Phaser.Scene {
                 const bulletOffsetX = (huntianlingWidth - bulletBodySize) / 2;
                 const bulletOffsetY = (huntianlingHeight - bulletBodySize) / 2;
                 bullet.body.setOffset(bulletOffsetX, bulletOffsetY);
+                
+                // 新增：设置子弹的新技能属性
+                bullet.pierceCount = this.upgradeManager.getUpgradeValue(UpgradeManager.UPGRADE_TYPES.BULLET_PIERCE);
+                bullet.explosiveLevel = this.upgradeManager.getUpgradeValue(UpgradeManager.UPGRADE_TYPES.EXPLOSIVE_SHOT);
+                bullet.bounces = 0; // 重置反弹计数
+                bullet.hasHitEnemy = false; // 标记是否已命中敌人
             }
         }
     }
@@ -953,45 +1180,221 @@ export default class GameScene extends Phaser.Scene {
             return;
         }
         
-        bullet.destroy();
-        enemy.destroy();
+        // 获取敌人当前血量
+        let currentHp = enemy.getData('currentHp') || 1;
         
-        this.score += 10;
-        this.events.emit('updateScore', this.score);
+        // 减少血量
+        currentHp -= 1;
+        enemy.setData('currentHp', currentHp);
         
-        // 改进的再生机制 - 根据分数动态调整
-        const respawnDelay = this.calculateRespawnDelay(this.score);
-        const respawnCount = this.calculateRespawnCount(this.score);
+        // 更新血量条
+        this.updateEnemyHealthBar(enemy);
         
-        console.log(`敌人被击杀，当前分数: ${this.score}, ${respawnDelay}ms后重生${respawnCount}个敌人`);
+        // 添加受伤效果
+        enemy.setTint(0xff4444); // 红色闪烁表示受伤
+        this.time.delayedCall(200, () => {
+            const enhancementLevel = enemy.getData('enhancementLevel') || 0;
+            const originalTint = this.enemyEnhancementLevels[enhancementLevel].tint;
+            if (enemy.active) {
+                enemy.setTint(originalTint); // 恢复原来的颜色
+            }
+        });
         
-        this.time.delayedCall(respawnDelay, () => {
-            // 再次检查游戏是否仍在进行
-            if (!this.player.active) {
-                return;
+        // 检查敌人是否死亡
+        if (currentHp <= 0) {
+            // 记录爆炸位置（在敌人被销毁前）
+            const explosionX = enemy.body.x + enemy.body.width / 2;
+            const explosionY = enemy.body.y + enemy.body.height / 2;
+            
+            // 获取敌人的分数价值
+            const scoreValue = enemy.getData('scoreValue') || 10;
+            const enemyName = enemy.getData('name') || '敌人';
+            
+            // 移除血量条
+            this.removeEnemyHealthBar(enemy);
+            
+            // 销毁敌人
+            enemy.destroy();
+            
+            // 更新分数
+            this.score += scoreValue;
+            this.events.emit('updateScore', this.score);
+            
+            // 显示击杀奖励文本
+            this.showKillReward(explosionX, explosionY, scoreValue, enemyName);
+            
+            // 触发生命吸取
+            this.triggerLifeSteal();
+            
+            // 处理爆炸效果
+            if (bullet.explosiveLevel > 0) {
+                this.createExplosion(explosionX, explosionY, bullet.explosiveLevel);
             }
             
-            console.log('开始重生敌人...');
-            this.spawnEnemies(respawnCount);
+            // 改进的再生机制 - 根据分数动态调整
+            const respawnDelay = this.calculateRespawnDelay(this.score);
+            const respawnCount = this.calculateRespawnCount(this.score);
             
-            // 检查是否需要额外调整敌人数量以匹配当前分数等级
-            this.adjustEnemyCountForScore();
+            console.log(`${enemyName}被击杀，获得${scoreValue}分，当前总分: ${this.score}, ${respawnDelay}ms后重生${respawnCount}个敌人`);
             
-            console.log('敌人重生完成，当前敌人数量:', this.enemies.countActive());
+            this.time.delayedCall(respawnDelay, () => {
+                // 再次检查游戏是否仍在进行
+                if (!this.player.active) {
+                    return;
+                }
+                
+                console.log('开始重生强化敌人...');
+                this.spawnEnemies(respawnCount);
+                
+                // 检查是否需要额外调整敌人数量以匹配当前分数等级
+                this.adjustEnemyCountForScore();
+                
+                console.log('强化敌人重生完成，当前敌人数量:', this.enemies.countActive());
+            });
+        } else {
+            // 敌人还活着，显示伤害数字
+            this.showDamageNumber(enemy.x, enemy.y - 20, 1);
+        }
+        
+        // 处理穿透效果
+        if (bullet.pierceCount > 0) {
+            bullet.pierceCount--;
+            bullet.hasHitEnemy = true;
+            console.log(`子弹穿透！剩余穿透次数: ${bullet.pierceCount}`);
+            
+            // 如果穿透次数用完，销毁子弹
+            if (bullet.pierceCount <= 0) {
+                bullet.destroy();
+            }
+        } else {
+            // 没有穿透能力，销毁子弹
+            bullet.destroy();
+        }
+    }
+
+    // 创建爆炸效果
+    createExplosion(x, y, level) {
+        const explosionRadius = 40 + level * 15; // 爆炸半径随等级增加
+        
+        // 创建爆炸视觉效果
+        const explosion = this.add.circle(x, y, explosionRadius, 0xff6600);
+        explosion.setAlpha(0.7);
+        
+        // 爆炸动画
+        this.tweens.add({
+            targets: explosion,
+            scaleX: 1.5,
+            scaleY: 1.5,
+            alpha: 0,
+            duration: 400,
+            onComplete: () => explosion.destroy()
+        });
+        
+        // 对范围内的敌人造成爆炸伤害
+        this.enemies.getChildren().forEach(otherEnemy => {
+            if (otherEnemy.active) {
+                const distance = Phaser.Math.Distance.Between(
+                    x, y,
+                    otherEnemy.body.x + otherEnemy.body.width / 2,
+                    otherEnemy.body.y + otherEnemy.body.height / 2
+                );
+                
+                if (distance <= explosionRadius) {
+                    // 击退效果
+                    const knockback = new Phaser.Math.Vector2(
+                        otherEnemy.body.x + otherEnemy.body.width / 2 - x,
+                        otherEnemy.body.y + otherEnemy.body.height / 2 - y
+                    ).normalize().scale(200 + level * 50);
+                    
+                    otherEnemy.setVelocity(knockback.x, knockback.y);
+                    otherEnemy.setTint(0xff6600); // 橙色着色表示被爆炸伤害
+                    
+                    // 延迟销毁敌人
+                    this.time.delayedCall(300, () => {
+                        if (otherEnemy.active) {
+                            otherEnemy.destroy();
+                            this.score += 5; // 爆炸造成的击杀给予较少分数
+                            this.events.emit('updateScore', this.score);
+                            this.triggerLifeSteal(); // 爆炸击杀也能触发生命吸取
+                        }
+                    });
+                }
+            }
+        });
+        
+        console.log(`爆炸效果！等级: ${level}, 半径: ${explosionRadius}`);
+    }
+
+    // 新增：显示击杀奖励文本
+    showKillReward(x, y, scoreValue, enemyName) {
+        const rewardText = this.add.text(x, y, `+${scoreValue}`, {
+            fontSize: '16px',
+            fill: '#ffff00',
+            fontStyle: 'bold'
+        });
+        rewardText.setOrigin(0.5);
+        
+        // 飘动效果
+        this.tweens.add({
+            targets: rewardText,
+            y: y - 40,
+            alpha: 0,
+            duration: 1500,
+            ease: 'Power2',
+            onComplete: () => rewardText.destroy()
+        });
+        
+        // 如果是高价值目标，显示特殊效果
+        if (scoreValue >= 50) {
+            const specialText = this.add.text(x, y + 20, `击杀 ${enemyName}!`, {
+                fontSize: '12px',
+                fill: '#ff8000',
+                fontStyle: 'bold'
+            });
+            specialText.setOrigin(0.5);
+            
+            this.tweens.add({
+                targets: specialText,
+                y: y - 20,
+                alpha: 0,
+                duration: 2000,
+                ease: 'Power2',
+                onComplete: () => specialText.destroy()
+            });
+        }
+    }
+
+    // 新增：显示伤害数字
+    showDamageNumber(x, y, damage) {
+        const damageText = this.add.text(x, y, `-${damage}`, {
+            fontSize: '14px',
+            fill: '#ffffff',
+            fontStyle: 'bold'
+        });
+        damageText.setOrigin(0.5);
+        
+        this.tweens.add({
+            targets: damageText,
+            y: y - 30,
+            alpha: 0,
+            duration: 1000,
+            ease: 'Power2',
+            onComplete: () => damageText.destroy()
         });
     }
 
     // 根据分数计算应该存在的敌人数量
     calculateEnemyCountForScore(score) {
-        // 根据分数阶段性增加敌人数量
-        let enemyCount = this.baseEnemyCount;
+        // 根据分数阶段性增加敌人数量 - 强化敌人版本
+        let enemyCount = this.baseEnemyCount; // 基础8个敌人
         
-        if (score >= 50) enemyCount += 2;    // 50分: 5个敌人
-        if (score >= 100) enemyCount += 2;   // 100分: 7个敌人
-        if (score >= 200) enemyCount += 3;   // 200分: 10个敌人
-        if (score >= 400) enemyCount += 3;   // 400分: 13个敌人
-        if (score >= 800) enemyCount += 4;   // 800分: 17个敌人
-        if (score >= 1600) enemyCount += 3;  // 1600分: 20个敌人
+        if (score >= 50) enemyCount += 6;    // 50分: 14个敌人
+        if (score >= 100) enemyCount += 8;   // 100分: 22个敌人
+        if (score >= 200) enemyCount += 10;  // 200分: 32个敌人
+        if (score >= 400) enemyCount += 12;  // 400分: 44个敌人
+        if (score >= 800) enemyCount += 14;  // 800分: 58个敌人
+        if (score >= 1600) enemyCount += 16; // 1600分: 74个敌人
+        if (score >= 3200) enemyCount += 6;  // 3200分: 80个敌人（上限）
         
         return Math.min(enemyCount, this.maxEnemyCount);
     }
@@ -1005,8 +1408,11 @@ export default class GameScene extends Phaser.Scene {
 
     // 根据分数计算每次重生的敌人数量
     calculateRespawnCount(score) {
-        if (score >= 800) return 3;  // 800分以上每次重生3个
-        if (score >= 400) return 2;  // 400分以上每次重生2个
+        // 无限怪物房间版本 - 更激进的重生策略
+        if (score >= 1600) return 5;  // 1600分以上每次重生5个
+        if (score >= 800) return 4;   // 800分以上每次重生4个
+        if (score >= 400) return 3;   // 400分以上每次重生3个
+        if (score >= 100) return 2;   // 100分以上每次重生2个
         return 1; // 默认重生1个
     }
 
@@ -1195,5 +1601,585 @@ export default class GameScene extends Phaser.Scene {
         }
 
         console.log('Debug 模式:', this.debugEnabled ? '开启' : '关闭');
+    }
+
+    // 新增：新技能更新逻辑
+    updateNewSkills() {
+        // 更新火焰护体
+        this.updateFireShield();
+        
+        // 更新分身
+        this.updateClones();
+        
+        // 检查瞬移突进
+        this.checkDashAttack();
+        
+        // 更新射击间隔
+        this.updateAttackSpeed();
+    }
+
+    // 火焰护体更新
+    updateFireShield() {
+        const fireShieldLevel = this.upgradeManager.getUpgradeValue(UpgradeManager.UPGRADE_TYPES.FIRE_SHIELD);
+        
+        if (fireShieldLevel > 0 && !this.fireShieldActive) {
+            this.activateFireShield();
+        } else if (fireShieldLevel === 0 && this.fireShieldActive) {
+            this.deactivateFireShield();
+        }
+        
+        if (this.fireShieldActive) {
+            // 检查是否需要重新创建火焰粒子（等级提升时）
+            const currentParticleCount = this.fireShieldEffects.getChildren().length;
+            const requiredParticleCount = Math.max(4, 4 + fireShieldLevel * 2);
+            
+            if (currentParticleCount !== requiredParticleCount) {
+                // 重新创建火焰护体效果
+                this.fireShieldEffects.clear(true, true);
+                this.activateFireShield();
+            } else {
+                this.updateFireShieldEffects(fireShieldLevel);
+            }
+        }
+    }
+
+    // 激活火焰护体
+    activateFireShield() {
+        this.fireShieldActive = true;
+        
+        // 创建火焰护体效果
+        const playerCenterX = this.player.body.x + this.player.body.width / 2;
+        const playerCenterY = this.player.body.y + this.player.body.height / 2;
+        
+        // 获取当前等级来决定火焰粒子数量
+        const fireShieldLevel = this.upgradeManager.getUpgradeValue(UpgradeManager.UPGRADE_TYPES.FIRE_SHIELD);
+        const particleCount = Math.max(4, 4 + fireShieldLevel * 2); // 基础4个，每级增加2个
+        
+        // 创建多个火焰粒子围绕玩家旋转
+        for (let i = 0; i < particleCount; i++) {
+            const angle = (i / particleCount) * Math.PI * 2;
+            const fireEffect = this.add.circle(
+                playerCenterX + Math.cos(angle) * this.fireShieldRadius,
+                playerCenterY + Math.sin(angle) * this.fireShieldRadius,
+                6 + fireShieldLevel * 1.5, // 火焰大小随等级调整
+                0xff4500
+            );
+            fireEffect.setAlpha(0.8);
+            fireEffect.rotationAngle = angle;
+            this.fireShieldEffects.add(fireEffect);
+        }
+        
+        console.log(`火焰护体已激活 - 等级: ${fireShieldLevel}, 火焰粒子数量: ${particleCount}`);
+    }
+
+    // 停用火焰护体
+    deactivateFireShield() {
+        this.fireShieldActive = false;
+        this.fireShieldEffects.clear(true, true);
+        
+        // 清理所有敌人的火焰伤害计时器
+        this.enemyFireDamageTimers.clear();
+        
+        console.log('火焰护体已停用');
+    }
+
+    // 更新火焰护体效果
+    updateFireShieldEffects(level) {
+        const playerCenterX = this.player.body.x + this.player.body.width / 2;
+        const playerCenterY = this.player.body.y + this.player.body.height / 2;
+        const time = this.time.now * 0.005; // 旋转速度
+        
+        // 更新火焰粒子位置
+        this.fireShieldEffects.getChildren().forEach((fireEffect, index) => {
+            const baseAngle = fireEffect.rotationAngle;
+            const currentAngle = baseAngle + time;
+            const radius = this.fireShieldRadius + level * 10; // 等级越高半径越大
+            
+            fireEffect.x = playerCenterX + Math.cos(currentAngle) * radius;
+            fireEffect.y = playerCenterY + Math.sin(currentAngle) * radius;
+            fireEffect.setRadius(6 + level * 2); // 等级越高火焰越大
+        });
+        
+        // 检查与敌人的碰撞
+        this.enemies.getChildren().forEach(enemy => {
+            const enemyCenterX = enemy.body.x + enemy.body.width / 2;
+            const enemyCenterY = enemy.body.y + enemy.body.height / 2;
+            const distance = Phaser.Math.Distance.Between(
+                playerCenterX, playerCenterY,
+                enemyCenterX, enemyCenterY
+            );
+            
+            if (distance <= this.fireShieldRadius + level * 10 + 20) {
+                // 敌人在火焰护体范围内，造成伤害
+                this.damageEnemyWithFireShield(enemy, level);
+            }
+        });
+    }
+
+    // 火焰护体对敌人造成伤害
+    damageEnemyWithFireShield(enemy, level) {
+        // 检查该敌人是否还在火焰护体伤害冷却中
+        const enemyId = enemy.body.id || enemy.name || enemy.getData('id');
+        const currentTime = this.time.now;
+        
+        if (this.enemyFireDamageTimers.has(enemyId)) {
+            const lastDamageTime = this.enemyFireDamageTimers.get(enemyId);
+            if (currentTime - lastDamageTime < this.fireShieldDamageDelay) {
+                return; // 还在冷却中，不造成伤害
+            }
+        }
+        
+        // 记录本次伤害时间
+        this.enemyFireDamageTimers.set(enemyId, currentTime);
+        
+        // 添加烧伤效果
+        enemy.setTint(0xff4500); // 红色着色表示被烧伤
+        
+        // 减少击退效果 - 将原来的150 + level * 30改为80 + level * 15
+        const playerCenterX = this.player.body.x + this.player.body.width / 2;
+        const playerCenterY = this.player.body.y + this.player.body.height / 2;
+        const enemyCenterX = enemy.body.x + enemy.body.width / 2;
+        const enemyCenterY = enemy.body.y + enemy.body.height / 2;
+        
+        const knockback = new Phaser.Math.Vector2(
+            enemyCenterX - playerCenterX,
+            enemyCenterY - playerCenterY
+        ).normalize().scale(80 + level * 15); // 减少击退力度
+        
+        enemy.setVelocity(knockback.x, knockback.y);
+        
+        // 延迟销毁敌人 - 增加延迟时间让效果更温和
+        this.time.delayedCall(500, () => {
+            if (enemy.active) {
+                enemy.destroy();
+                this.score += 8; // 稍微减少分数奖励
+                this.events.emit('updateScore', this.score);
+                this.triggerLifeSteal(); // 触发生命吸取
+                
+                // 清理该敌人的伤害计时器
+                this.enemyFireDamageTimers.delete(enemyId);
+            }
+        });
+        
+        console.log(`火焰护体造成伤害 - 等级: ${level}, 击退力度: ${80 + level * 15}`);
+    }
+
+    // 更新分身
+    updateClones() {
+        const cloneCount = this.upgradeManager.getUpgradeValue(UpgradeManager.UPGRADE_TYPES.SUMMON_CLONE);
+        
+        if (cloneCount > this.clones.countActive()) {
+            this.spawnClones(cloneCount - this.clones.countActive());
+        } else if (cloneCount < this.clones.countActive()) {
+            // 移除多余的分身
+            const excess = this.clones.countActive() - cloneCount;
+            for (let i = 0; i < excess; i++) {
+                const clone = this.clones.getFirstAlive();
+                if (clone) clone.destroy();
+            }
+        }
+        
+        // 更新分身位置和行为
+        this.updateCloneBehavior();
+    }
+
+    // 生成分身
+    spawnClones(count) {
+        for (let i = 0; i < count; i++) {
+            const angle = (i / count) * Math.PI * 2;
+            const distance = 100;
+            const playerCenterX = this.player.body.x + this.player.body.width / 2;
+            const playerCenterY = this.player.body.y + this.player.body.height / 2;
+            
+            const cloneX = playerCenterX + Math.cos(angle) * distance;
+            const cloneY = playerCenterY + Math.sin(angle) * distance;
+            
+            const clone = this.clones.create(cloneX, cloneY, 'player');
+            clone.setScale(0.035); // 与玩家相同的缩放
+            clone.setAlpha(0.7); // 半透明表示是分身
+            clone.setTint(0x00ffff); // 蓝色着色区分分身
+            
+            // 设置分身的碰撞体
+            const targetBodySize = 32;
+            const bodySize = targetBodySize / 0.035;
+            clone.body.setSize(bodySize, bodySize);
+            const offset = (1024 - bodySize) / 2;
+            clone.body.setOffset(offset, offset);
+            
+            console.log('分身已生成');
+        }
+    }
+
+    // 更新分身行为
+    updateCloneBehavior() {
+        const playerCenterX = this.player.body.x + this.player.body.width / 2;
+        const playerCenterY = this.player.body.y + this.player.body.height / 2;
+        
+        this.clones.getChildren().forEach((clone, index) => {
+            if (clone.active) {
+                // 分身围绕玩家移动
+                const angle = (index / this.clones.countActive()) * Math.PI * 2 + this.time.now * 0.002;
+                const distance = 120;
+                const targetX = playerCenterX + Math.cos(angle) * distance;
+                const targetY = playerCenterY + Math.sin(angle) * distance;
+                
+                // 移动到目标位置
+                const moveSpeed = 150;
+                const dx = targetX - (clone.body.x + clone.body.width / 2);
+                const dy = targetY - (clone.body.y + clone.body.height / 2);
+                const distance2 = Math.sqrt(dx * dx + dy * dy);
+                
+                if (distance2 > 20) {
+                    clone.setVelocity(
+                        (dx / distance2) * moveSpeed,
+                        (dy / distance2) * moveSpeed
+                    );
+                } else {
+                    clone.setVelocity(0, 0);
+                }
+                
+                // 分身自动攻击
+                this.updateCloneAttack(clone);
+            }
+        });
+    }
+
+    // 分身攻击逻辑
+    updateCloneAttack(clone) {
+        // 每2秒射击一次
+        if (this.time.now - this.cloneShootTimer > 2000) {
+            const nearestEnemy = this.findNearestEnemyToClone(clone);
+            if (nearestEnemy) {
+                this.cloneShoot(clone, nearestEnemy);
+                this.cloneShootTimer = this.time.now;
+            }
+        }
+    }
+
+    // 找到分身附近最近的敌人
+    findNearestEnemyToClone(clone) {
+        let nearestEnemy = null;
+        let shortestDistance = 200; // 分身攻击范围
+        
+        this.enemies.getChildren().forEach(enemy => {
+            if (enemy.active) {
+                const distance = Phaser.Math.Distance.Between(
+                    clone.body.x + clone.body.width / 2,
+                    clone.body.y + clone.body.height / 2,
+                    enemy.body.x + enemy.body.width / 2,
+                    enemy.body.y + enemy.body.height / 2
+                );
+                
+                if (distance < shortestDistance) {
+                    shortestDistance = distance;
+                    nearestEnemy = enemy;
+                }
+            }
+        });
+        
+        return nearestEnemy;
+    }
+
+    // 分身射击
+    cloneShoot(clone, target) {
+        const cloneCenterX = clone.body.x + clone.body.width / 2;
+        const cloneCenterY = clone.body.y + clone.body.height / 2;
+        const targetCenterX = target.body.x + target.body.width / 2;
+        const targetCenterY = target.body.y + target.body.height / 2;
+        
+        const bullet = this.cloneBullets.get(cloneCenterX, cloneCenterY);
+        if (bullet) {
+            bullet.setActive(true);
+            bullet.setVisible(true);
+            bullet.setScale(0.0156); // 与主角子弹相同
+            bullet.setTint(0x00ffff); // 蓝色着色区分分身子弹
+            
+            const angle = Phaser.Math.Angle.Between(cloneCenterX, cloneCenterY, targetCenterX, targetCenterY);
+            bullet.setRotation(angle);
+            this.physics.velocityFromRotation(angle, this.bulletSpeed * 0.8, bullet.body.velocity);
+            
+            // 设置碰撞体
+            const targetBulletBodySize = 20;
+            const bulletBodySize = targetBulletBodySize / 0.0156;
+            bullet.body.setSize(bulletBodySize, bulletBodySize);
+            const bulletOffsetX = (1536 - bulletBodySize) / 2;
+            const bulletOffsetY = (1024 - bulletBodySize) / 2;
+            bullet.body.setOffset(bulletOffsetX, bulletOffsetY);
+        }
+    }
+
+    // 检查瞬移突进
+    checkDashAttack() {
+        const dashLevel = this.upgradeManager.getUpgradeValue(UpgradeManager.UPGRADE_TYPES.DASH_ATTACK);
+        
+        if (dashLevel > 0 && this.spaceKey.isDown && this.time.now - this.lastDashTime > this.dashCooldown) {
+            this.performDashAttack(dashLevel);
+        }
+    }
+
+    // 执行瞬移突进
+    performDashAttack(level) {
+        // 瞬移到鼠标位置
+        const pointer = this.input.activePointer;
+        const targetX = pointer.worldX;
+        const targetY = pointer.worldY;
+        
+        // 检查目标位置是否有效
+        if (this.isValidDashPosition(targetX, targetY)) {
+            // 记录原位置
+            const oldX = this.player.x;
+            const oldY = this.player.y;
+            
+            // 瞬移
+            this.player.setPosition(targetX, targetY);
+            
+            // 产生冲击波效果
+            this.createDashImpact(targetX, targetY, level);
+            
+            // 更新冷却时间
+            this.lastDashTime = this.time.now;
+            
+            console.log(`瞬移突进！从 (${Math.round(oldX)}, ${Math.round(oldY)}) 到 (${Math.round(targetX)}, ${Math.round(targetY)})`);
+        }
+    }
+
+    // 检查瞬移位置是否有效
+    isValidDashPosition(x, y) {
+        // 检查是否在地图边界内
+        if (x < 32 || x >= this.map.widthInPixels - 32 || 
+            y < 32 || y >= this.map.heightInPixels - 32) {
+            return false;
+        }
+        
+        // 检查是否为地板
+        const tileX = Math.floor(x / 32);
+        const tileY = Math.floor(y / 32);
+        const floorTile = this.floorLayer.getTileAt(tileX, tileY);
+        const wallTile = this.wallLayer.getTileAt(tileX, tileY);
+        
+        return floorTile && floorTile.index === 0 && (!wallTile || wallTile.index !== 1);
+    }
+
+    // 创建瞬移冲击效果
+    createDashImpact(x, y, level) {
+        // 创建冲击波圆圈
+        const impactRadius = 60 + level * 20;
+        const impactCircle = this.add.circle(x, y, impactRadius, 0xffff00);
+        impactCircle.setAlpha(0.5);
+        
+        // 冲击波扩散动画
+        this.tweens.add({
+            targets: impactCircle,
+            scaleX: 1.5,
+            scaleY: 1.5,
+            alpha: 0,
+            duration: 300,
+            onComplete: () => impactCircle.destroy()
+        });
+        
+        // 对范围内的敌人造成伤害
+        this.enemies.getChildren().forEach(enemy => {
+            if (enemy.active) {
+                const distance = Phaser.Math.Distance.Between(
+                    x, y,
+                    enemy.body.x + enemy.body.width / 2,
+                    enemy.body.y + enemy.body.height / 2
+                );
+                
+                if (distance <= impactRadius) {
+                    // 击退敌人
+                    const knockback = new Phaser.Math.Vector2(
+                        enemy.body.x + enemy.body.width / 2 - x,
+                        enemy.body.y + enemy.body.height / 2 - y
+                    ).normalize().scale(300 + level * 50);
+                    
+                    enemy.setVelocity(knockback.x, knockback.y);
+                    
+                    // 销毁敌人
+                    this.time.delayedCall(100, () => {
+                        if (enemy.active) {
+                            enemy.destroy();
+                            this.score += 10;
+                            this.events.emit('updateScore', this.score);
+                            this.triggerLifeSteal(); // 触发生命吸取
+                        }
+                    });
+                }
+            }
+        });
+    }
+
+    // 更新攻击速度
+    updateAttackSpeed() {
+        const newInterval = this.upgradeManager.getUpgradeValue(UpgradeManager.UPGRADE_TYPES.ATTACK_SPEED);
+        if (newInterval !== this.shootInterval) {
+            this.shootInterval = newInterval;
+            console.log(`攻击速度更新: ${this.shootInterval}ms 间隔`);
+        }
+    }
+
+    // 生命吸取触发
+    triggerLifeSteal() {
+        const lifeStealChance = this.upgradeManager.getUpgradeValue(UpgradeManager.UPGRADE_TYPES.LIFE_STEAL);
+        
+        if (lifeStealChance > 0 && Math.random() * 100 < lifeStealChance) {
+            if (this.playerHp < this.maxPlayerHp) {
+                this.playerHp++;
+                this.events.emit('updateHP', this.playerHp, this.maxPlayerHp);
+                
+                // 创建治疗效果
+                const healEffect = this.add.text(
+                    this.player.x, this.player.y - 30,
+                    '+1 HP', 
+                    { fontSize: '16px', fill: '#00ff00' }
+                );
+                healEffect.setOrigin(0.5);
+                
+                this.tweens.add({
+                    targets: healEffect,
+                    y: healEffect.y - 30,
+                    alpha: 0,
+                    duration: 1000,
+                    onComplete: () => healEffect.destroy()
+                });
+                
+                console.log(`生命吸取触发！回复1点生命值，当前血量: ${this.playerHp}/${this.maxPlayerHp}`);
+            }
+        }
+    }
+
+    // 子弹撞墙处理（支持反弹）
+    handleBulletWallCollision(bullet, wall) {
+        const bounceCount = this.upgradeManager.getUpgradeValue(UpgradeManager.UPGRADE_TYPES.BULLET_BOUNCE);
+        
+        if (bounceCount > 0 && (!bullet.bounces || bullet.bounces < bounceCount)) {
+            // 初始化反弹计数
+            if (!bullet.bounces) bullet.bounces = 0;
+            bullet.bounces++;
+            
+            // 计算反弹方向
+            const bulletVelocity = bullet.body.velocity;
+            const wallTileX = wall.x;
+            const wallTileY = wall.y;
+            
+            // 简单的反弹逻辑：反转速度分量
+            if (Math.abs(bullet.x - wallTileX) > Math.abs(bullet.y - wallTileY)) {
+                // 水平撞击，反转X速度
+                bullet.body.velocity.x = -bulletVelocity.x;
+            } else {
+                // 垂直撞击，反转Y速度
+                bullet.body.velocity.y = -bulletVelocity.y;
+            }
+            
+            // 更新子弹旋转
+            const newAngle = Math.atan2(bullet.body.velocity.y, bullet.body.velocity.x);
+            bullet.setRotation(newAngle);
+            
+            console.log(`子弹反弹！剩余反弹次数: ${bounceCount - bullet.bounces}`);
+        } else {
+            // 没有反弹能力或反弹次数用完，销毁子弹
+            bullet.destroy();
+        }
+    }
+
+    // 新增：应用敌人强化效果
+    applyEnemyEnhancement(enemy, enhancementLevel) {
+        const enhancement = this.enemyEnhancementLevels[enhancementLevel];
+        
+        // 设置敌人的基础属性
+        const baseScale = 0.035;
+        const finalScale = baseScale * enhancement.scale;
+        enemy.setScale(finalScale);
+        
+        // 设置颜色着色
+        enemy.setTint(enhancement.tint);
+        
+        // 设置碰撞体
+        const targetEnemyBodySize = 28 * enhancement.scale; // 碰撞体也根据等级缩放
+        const enemyBodySize = targetEnemyBodySize / finalScale;
+        enemy.body.setSize(enemyBodySize, enemyBodySize);
+        
+        const enemyTextureSize = 1024;
+        const enemyOffset = (enemyTextureSize - enemyBodySize) / 2;
+        enemy.body.setOffset(enemyOffset, enemyOffset);
+        
+        enemy.setCollideWorldBounds(false);
+        
+        // 设置敌人的强化属性
+        enemy.setData('enhancementLevel', enhancementLevel);
+        enemy.setData('maxHp', enhancement.hp);
+        enemy.setData('currentHp', enhancement.hp);
+        enemy.setData('speedMultiplier', enhancement.speed);
+        enemy.setData('scoreValue', enhancement.scoreValue);
+        enemy.setData('name', enhancement.name);
+        
+        // 如果是强化敌人，添加血量显示
+        if (enhancementLevel > 0) {
+            this.createEnemyHealthBar(enemy);
+        }
+    }
+
+    // 新增：创建敌人血量条
+    createEnemyHealthBar(enemy) {
+        const maxHp = enemy.getData('maxHp');
+        if (maxHp <= 1) return; // 普通敌人不显示血量条
+        
+        // 创建血量条背景
+        const healthBarBg = this.add.rectangle(enemy.x, enemy.y - 30, 30, 4, 0x000000);
+        healthBarBg.setOrigin(0.5);
+        
+        // 创建血量条前景
+        const healthBarFg = this.add.rectangle(enemy.x, enemy.y - 30, 30, 4, 0x00ff00);
+        healthBarFg.setOrigin(0.5);
+        
+        // 将血量条关联到敌人
+        enemy.setData('healthBarBg', healthBarBg);
+        enemy.setData('healthBarFg', healthBarFg);
+        
+        // 更新血量条显示
+        this.updateEnemyHealthBar(enemy);
+    }
+
+    // 新增：更新敌人血量条
+    updateEnemyHealthBar(enemy) {
+        const healthBarBg = enemy.getData('healthBarBg');
+        const healthBarFg = enemy.getData('healthBarFg');
+        
+        if (healthBarBg && healthBarFg) {
+            const currentHp = enemy.getData('currentHp');
+            const maxHp = enemy.getData('maxHp');
+            
+            // 更新位置
+            healthBarBg.setPosition(enemy.x, enemy.y - 35);
+            healthBarFg.setPosition(enemy.x, enemy.y - 35);
+            
+            // 更新血量条长度
+            const healthPercentage = currentHp / maxHp;
+            healthBarFg.scaleX = healthPercentage;
+            
+            // 根据血量改变颜色
+            if (healthPercentage > 0.6) {
+                healthBarFg.setFillStyle(0x00ff00); // 绿色
+            } else if (healthPercentage > 0.3) {
+                healthBarFg.setFillStyle(0xffff00); // 黄色
+            } else {
+                healthBarFg.setFillStyle(0xff0000); // 红色
+            }
+        }
+    }
+
+    // 新增：移除敌人血量条
+    removeEnemyHealthBar(enemy) {
+        const healthBarBg = enemy.getData('healthBarBg');
+        const healthBarFg = enemy.getData('healthBarFg');
+        
+        if (healthBarBg) {
+            healthBarBg.destroy();
+            enemy.setData('healthBarBg', null);
+        }
+        if (healthBarFg) {
+            healthBarFg.destroy();
+            enemy.setData('healthBarFg', null);
+        }
     }
 }
