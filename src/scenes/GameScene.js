@@ -28,14 +28,14 @@ export default class GameScene extends Phaser.Scene {
         
         // 新增：动态生成相关变量
         this.proximitySpawnRadius = 400; // 玩家周围生成范围
-        this.minSpawnDistance = 150; // 最小生成距离（避免直接在玩家身边生成）
+        this.minSpawnDistance = 250; // 最小生成距离（增加到250像素，避免直接在玩家身边生成）
         this.maxSpawnDistance = 600; // 最大生成距离
         this.spawnAttempts = 20; // 寻找有效生成位置的最大尝试次数
         
         // 新增：智能生成相关变量
         this.lastPlayerPosition = { x: 0, y: 0 }; // 记录上次玩家位置
         this.playerMovementThreshold = 100; // 玩家移动阈值
-        this.adaptiveSpawnDistance = { min: 150, max: 600 }; // 自适应生成距离
+        this.adaptiveSpawnDistance = { min: 200, max: 600 }; // 自适应生成距离（提高最小值）
         this.enemyDistributionCheck = true; // 是否检查敌人分布
         
         // 添加定期检查计时器
@@ -479,11 +479,16 @@ export default class GameScene extends Phaser.Scene {
     spawnEnemies(count) {
         console.log(`尝试生成 ${count} 个敌人，当前房间数量: ${this.rooms.length}`);
         
+        // 定义可用的小龙人贴图数组
+        const dragonTextures = ['xiaolongren', 'xiaolongren1', 'xiaolongren2'];
+        
         for (let i = 0; i < count; i++) {
             const spawnPosition = this.findValidSpawnPosition();
             
             if (spawnPosition) {
-                const enemy = this.enemies.create(spawnPosition.x, spawnPosition.y, 'xiaolongren');
+                // 随机选择一种小龙人贴图
+                const randomTexture = Phaser.Utils.Array.GetRandom(dragonTextures);
+                const enemy = this.enemies.create(spawnPosition.x, spawnPosition.y, randomTexture);
                 
                 // 设置小龙人的缩放和碰撞体，参考玩家设置
                 // 假设小龙人图片尺寸和玩家类似，如果实际尺寸不同请调整scale值
@@ -512,7 +517,7 @@ export default class GameScene extends Phaser.Scene {
                     enemyCenterX, enemyCenterY
                 );
                 
-                console.log(`敌人生成在位置: (${spawnPosition.x}, ${spawnPosition.y})，Body中心距离玩家: ${Math.round(distanceToPlayer)}像素`);
+                console.log(`敌人生成在位置: (${spawnPosition.x}, ${spawnPosition.y})，使用贴图: ${randomTexture}，Body中心距离玩家: ${Math.round(distanceToPlayer)}像素`);
             } else {
                 console.log('无法找到有效的生成位置，使用备用方法');
                 this.fallbackSpawnEnemy();
@@ -572,24 +577,24 @@ export default class GameScene extends Phaser.Scene {
         
         const enemyDensity = nearbyEnemies.length;
         
-        // 根据敌人密度调整生成距离
+        // 根据敌人密度调整生成距离，但保持更安全的最小距离
         if (enemyDensity < 2) {
-            // 附近敌人太少，生成得更近一些
-            this.adaptiveSpawnDistance.min = 120;
-            this.adaptiveSpawnDistance.max = 350;
+            // 附近敌人太少，生成得稍近一些，但不能太近
+            this.adaptiveSpawnDistance.min = 200;
+            this.adaptiveSpawnDistance.max = 400;
         } else if (enemyDensity > 5) {
             // 附近敌人太多，生成得远一些
-            this.adaptiveSpawnDistance.min = 200;
+            this.adaptiveSpawnDistance.min = 300;
             this.adaptiveSpawnDistance.max = 800;
         } else {
             // 恢复默认距离
-            this.adaptiveSpawnDistance.min = 150;
+            this.adaptiveSpawnDistance.min = 250;
             this.adaptiveSpawnDistance.max = 600;
         }
         
-        // 根据分数调整生成距离（高分时敌人可以生成得更近，增加挑战）
+        // 根据分数调整生成距离，但保持安全的最小距离
         if (this.score >= 400) {
-            this.adaptiveSpawnDistance.min = Math.max(100, this.adaptiveSpawnDistance.min - 30);
+            this.adaptiveSpawnDistance.min = Math.max(200, this.adaptiveSpawnDistance.min - 30);
         }
     }
 
@@ -670,7 +675,7 @@ export default class GameScene extends Phaser.Scene {
             const enemyCenterX = enemy.body.x + enemy.body.width / 2;
             const enemyCenterY = enemy.body.y + enemy.body.height / 2;
             const distance = Phaser.Math.Distance.Between(enemyCenterX, enemyCenterY, x, y);
-            return distance < 64; // 避免敌人生成得太近
+            return distance < 100; // 增加敌人之间的最小距离，避免敌人生成得太近
         });
         
         if (tooCloseToEnemy) {
@@ -682,52 +687,97 @@ export default class GameScene extends Phaser.Scene {
 
     // 备用生成方法（当找不到玩家附近的有效位置时使用）
     fallbackSpawnEnemy() {
-        // 尝试在现有房间中生成（原来的逻辑作为备用）
-        if (this.rooms.length < 2) {
+        // 定义可用的小龙人贴图数组
+        const dragonTextures = ['xiaolongren', 'xiaolongren1', 'xiaolongren2'];
+        
+        // 获取玩家位置用于距离检查
+        const playerCenterX = this.player.body.x + this.player.body.width / 2;
+        const playerCenterY = this.player.body.y + this.player.body.height / 2;
+        
+        // 尝试在现有房间中生成（原来的逻辑作为备用），但要检查距离
+        let spawnSuccess = false;
+        
+        // 先尝试在除玩家当前房间外的其他房间生成
+        if (this.rooms.length >= 2) {
+            for (let attempt = 0; attempt < 10; attempt++) {
+                const roomIndex = Phaser.Math.Between(1, this.rooms.length - 1);
+                const room = this.rooms[roomIndex];
+                if (room) {
+                    const enemyX = Phaser.Math.Between(room.x + 16, room.right - 16);
+                    const enemyY = Phaser.Math.Between(room.y + 16, room.bottom - 16);
+                    
+                    // 检查距离玩家是否足够远
+                    const distanceToPlayer = Phaser.Math.Distance.Between(
+                        playerCenterX, playerCenterY, enemyX, enemyY
+                    );
+                    
+                    if (distanceToPlayer >= this.minSpawnDistance) {
+                        // 随机选择一种小龙人贴图
+                        const randomTexture = Phaser.Utils.Array.GetRandom(dragonTextures);
+                        const enemy = this.enemies.create(enemyX, enemyY, randomTexture);
+                        
+                        // 设置小龙人的缩放和碰撞体，与主要生成方法保持一致
+                        const enemyScale = 0.035;
+                        enemy.setScale(enemyScale);
+                        
+                        const targetEnemyBodySize = 28;
+                        const enemyBodySize = targetEnemyBodySize / enemyScale;
+                        enemy.body.setSize(enemyBodySize, enemyBodySize);
+                        
+                        const enemyTextureSize = 1024;
+                        const enemyOffset = (enemyTextureSize - enemyBodySize) / 2;
+                        enemy.body.setOffset(enemyOffset, enemyOffset);
+                        
+                        enemy.setCollideWorldBounds(false);
+                        console.log(`备用方法：敌人生成在房间 ${roomIndex}，位置: (${enemyX}, ${enemyY})，使用贴图: ${randomTexture}，距离玩家: ${Math.round(distanceToPlayer)}像素`);
+                        spawnSuccess = true;
+                        break;
+                    }
+                }
+            }
+        }
+        
+        // 如果上面的方法失败，尝试在第一个房间（玩家房间）的边缘生成
+        if (!spawnSuccess && this.rooms.length > 0) {
             const room = this.rooms[0];
             if (room) {
-                const enemyX = Phaser.Math.Between(room.x + 16, room.right - 16);
-                const enemyY = Phaser.Math.Between(room.y + 16, room.bottom - 16);
-                const enemy = this.enemies.create(enemyX, enemyY, 'xiaolongren');
-                
-                // 设置小龙人的缩放和碰撞体，与主要生成方法保持一致
-                const enemyScale = 0.035;
-                enemy.setScale(enemyScale);
-                
-                const targetEnemyBodySize = 28;
-                const enemyBodySize = targetEnemyBodySize / enemyScale;
-                enemy.body.setSize(enemyBodySize, enemyBodySize);
-                
-                const enemyTextureSize = 1024;
-                const enemyOffset = (enemyTextureSize - enemyBodySize) / 2;
-                enemy.body.setOffset(enemyOffset, enemyOffset);
-                
-                enemy.setCollideWorldBounds(false);
-                console.log(`备用方法：敌人生成在位置: (${enemyX}, ${enemyY})`);
+                for (let attempt = 0; attempt < 10; attempt++) {
+                    const enemyX = Phaser.Math.Between(room.x + 16, room.right - 16);
+                    const enemyY = Phaser.Math.Between(room.y + 16, room.bottom - 16);
+                    
+                    // 检查距离玩家是否足够远
+                    const distanceToPlayer = Phaser.Math.Distance.Between(
+                        playerCenterX, playerCenterY, enemyX, enemyY
+                    );
+                    
+                    if (distanceToPlayer >= this.minSpawnDistance) {
+                        // 随机选择一种小龙人贴图
+                        const randomTexture = Phaser.Utils.Array.GetRandom(dragonTextures);
+                        const enemy = this.enemies.create(enemyX, enemyY, randomTexture);
+                        
+                        // 设置小龙人的缩放和碰撞体，与主要生成方法保持一致
+                        const enemyScale = 0.035;
+                        enemy.setScale(enemyScale);
+                        
+                        const targetEnemyBodySize = 28;
+                        const enemyBodySize = targetEnemyBodySize / enemyScale;
+                        enemy.body.setSize(enemyBodySize, enemyBodySize);
+                        
+                        const enemyTextureSize = 1024;
+                        const enemyOffset = (enemyTextureSize - enemyBodySize) / 2;
+                        enemy.body.setOffset(enemyOffset, enemyOffset);
+                        
+                        enemy.setCollideWorldBounds(false);
+                        console.log(`备用方法：敌人生成在位置: (${enemyX}, ${enemyY})，使用贴图: ${randomTexture}，距离玩家: ${Math.round(distanceToPlayer)}像素`);
+                        spawnSuccess = true;
+                        break;
+                    }
+                }
             }
-        } else {
-            const roomIndex = Phaser.Math.Between(1, this.rooms.length - 1);
-            const room = this.rooms[roomIndex];
-            if (room) {
-                const enemyX = Phaser.Math.Between(room.x + 16, room.right - 16);
-                const enemyY = Phaser.Math.Between(room.y + 16, room.bottom - 16);
-                const enemy = this.enemies.create(enemyX, enemyY, 'xiaolongren');
-                
-                // 设置小龙人的缩放和碰撞体，与主要生成方法保持一致
-                const enemyScale = 0.035;
-                enemy.setScale(enemyScale);
-                
-                const targetEnemyBodySize = 28;
-                const enemyBodySize = targetEnemyBodySize / enemyScale;
-                enemy.body.setSize(enemyBodySize, enemyBodySize);
-                
-                const enemyTextureSize = 1024;
-                const enemyOffset = (enemyTextureSize - enemyBodySize) / 2;
-                enemy.body.setOffset(enemyOffset, enemyOffset);
-                
-                enemy.setCollideWorldBounds(false);
-                console.log(`备用方法：敌人生成在房间 ${roomIndex}，位置: (${enemyX}, ${enemyY})`);
-            }
+        }
+        
+        if (!spawnSuccess) {
+            console.log('备用生成方法：无法找到足够远的位置生成敌人');
         }
     }
 

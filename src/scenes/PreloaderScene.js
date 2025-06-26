@@ -45,6 +45,9 @@ export default class PreloaderScene extends Phaser.Scene {
         this.load.image('huntianling', 'src/assets/huntianling.png');
 
         this.load.image("xiaolongren", 'src/assets/xiaolongren.png')
+        this.load.image("xiaolongren1", 'src/assets/xiaolongren1.png')
+        this.load.image("xiaolongren2", 'src/assets/xiaolongren2.png')
+        
         
         // --- 动态生成纹理 ---
         // 敌人 (红色方块)
